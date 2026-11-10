@@ -9,6 +9,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,11 +35,8 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoNotDisturbOn
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -57,6 +56,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -85,36 +85,56 @@ fun HealthCheckScreen(
     val statusMap = remember { mutableStateMapOf<String, Boolean>() }
     var showOemDialog by remember { mutableStateOf(false) }
 
+    val corePermissionsList = remember {
+        buildList {
+            add(Manifest.permission.READ_PHONE_STATE)
+            add(Manifest.permission.READ_CALL_LOG)
+            add(Manifest.permission.READ_CONTACTS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }.toTypedArray()
+    }
+
     fun refreshHealth() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
 
-        statusMap["service"] = repository.preferences.isProtectionActive()
-        statusMap["dnd"] = nm.isNotificationPolicyAccessGranted
-        statusMap["battery"] = pm.isIgnoringBatteryOptimizations(context.packageName)
-        statusMap["phone"] = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-        statusMap["fullscreen"] = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            nm.canUseFullScreenIntent()
+        val hasPhone = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+        val hasCallLog = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+        val hasContacts = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        val hasNotification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         } else {
             true
         }
-        statusMap["overlay"] = Settings.canDrawOverlays(context)
-        statusMap["oem"] = true // manual instructions item
+
+        statusMap["core_telephony"] = hasPhone && hasCallLog && hasContacts && hasNotification
+        statusMap["service"] = repository.preferences.isProtectionActive()
+        statusMap["dnd"] = nm.isNotificationPolicyAccessGranted
+        statusMap["battery"] = pm.isIgnoringBatteryOptimizations(context.packageName)
+        statusMap["display_screen"] = Settings.canDrawOverlays(context)
+        statusMap["oem"] = true
     }
 
     LaunchedEffect(Unit) {
         refreshHealth()
     }
 
+    val multiplePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        refreshHealth()
+    }
+
     val healthList = remember {
         listOf(
-            HealthItem("service", "Protection Service Active", "Monitors calls continuously in foreground", Icons.Default.Shield),
-            HealthItem("dnd", "DND Policy Bypass", "Required to play loud alarm over silent/DND mode", Icons.Default.DoNotDisturbOn),
-            HealthItem("battery", "Battery Optimization Ignored", "Prevents Android from stopping detection", Icons.Default.BatteryAlert),
-            HealthItem("overlay", "Display Over Apps & Lockscreen", "Required to pop up alarm over lockscreen & other apps", Icons.Default.Layers),
-            HealthItem("fullscreen", "Full-Screen Lockscreen Intent", "Opens alarm screen over lockscreen", Icons.Default.Fullscreen),
-            HealthItem("phone", "Phone State Monitoring", "Detects real-time incoming and missed calls", Icons.Default.Phone),
-            HealthItem("oem", "OEM Background Auto-Start Guide", "Settings for Xiaomi, Samsung, Oppo lockscreen popups", Icons.Default.Build)
+            HealthItem("core_telephony", "Call & Contacts Shield", "Detects repeated calls & trusted emergency contacts.", Icons.Default.Phone),
+            HealthItem("display_screen", "Lockscreen Alarm Display", "Shows emergency alarm dismiss screen over lockscreen.", Icons.Default.Layers),
+            HealthItem("dnd", "Silent Mode Alarm Bypass", "Allows siren to ring at full volume in Silent or DND.", Icons.Default.DoNotDisturbOn),
+            HealthItem("battery", "24/7 Background Guard", "Keeps call monitoring alive when screen is off.", Icons.Default.BatteryAlert),
+            HealthItem("service", "Protection Service Active", "Monitors calls continuously in foreground.", Icons.Default.Shield),
+            HealthItem("oem", "OEM Auto-Start Guide", "Settings for Xiaomi, Samsung, Oppo lockscreen popups.", Icons.Default.Build)
         )
     }
 
@@ -139,17 +159,17 @@ fun HealthCheckScreen(
         // Health Score Card
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            contentPadding = 18.dp
+            shape = RoundedCornerShape(20.dp),
+            contentPadding = 16.dp
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Score Ring / Circle
+                // Score Ring
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(56.dp)
                         .clip(CircleShape)
                         .background(
                             if (healthyCount == totalCount) DesignTokens.StatusActiveGreen.copy(alpha = 0.2f)
@@ -165,23 +185,23 @@ fun HealthCheckScreen(
                     Text(
                         text = "$healthyCount/$totalCount",
                         color = Color.White,
-                        fontSize = 18.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
                 Column {
                     Text(
                         text = if (healthyCount == totalCount) "Protection Rock Solid!" else "Action Required",
                         color = if (healthyCount == totalCount) DesignTokens.StatusActiveGreen else DesignTokens.StatusAttentionAmber,
-                        fontSize = 17.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = if (healthyCount == totalCount) stringResource(R.string.health_all_good)
-                        else "Some settings may prevent emergency alerts from sounding reliably.",
+                        else "Tap Allow to grant missing permissions.",
                         color = GlassTheme.tokens.textSecondary,
                         fontSize = 12.sp
                     )
@@ -189,9 +209,9 @@ fun HealthCheckScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Health Items Checklist
+        // Health Items Checklist - Uniform Sleek Cards
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -200,15 +220,17 @@ fun HealthCheckScreen(
                 val isHealthy = statusMap[item.id] == true
 
                 GlassCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(74.dp),
+                    shape = RoundedCornerShape(16.dp),
                     contentPadding = 12.dp
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Status Icon
+                        // Status Icon Box
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
@@ -230,36 +252,73 @@ fun HealthCheckScreen(
                         Spacer(modifier = Modifier.width(12.dp))
 
                         // Details
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.Center
+                        ) {
                             Text(
                                 text = item.title,
                                 color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = item.desc,
                                 color = GlassTheme.tokens.textSecondary,
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
 
-                        // Fix button
+                        // Uniform Action / Status button - Exactly 74.dp width and 36.dp height
                         if (item.id == "oem") {
                             GlassButton(
                                 onClick = { showOemDialog = true },
                                 variant = GlassButtonVariant.SECONDARY,
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.height(34.dp)
+                                modifier = Modifier.size(width = 74.dp, height = 36.dp)
                             ) {
-                                Text("Guide", fontSize = 11.sp)
+                                Text("Guide", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
-                        } else if (!isHealthy) {
+                        } else if (isHealthy) {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 74.dp, height = 36.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(DesignTokens.StatusActiveGreen.copy(alpha = 0.18f))
+                                    .border(1.dp, DesignTokens.StatusActiveGreen.copy(alpha = 0.4f), RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Active",
+                                        tint = DesignTokens.StatusActiveGreen,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "Active",
+                                        color = DesignTokens.StatusActiveGreen,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        } else {
                             GlassButton(
                                 onClick = {
                                     when (item.id) {
+                                        "core_telephony" -> {
+                                            multiplePermissionLauncher.launch(corePermissionsList)
+                                        }
                                         "service" -> {
                                             repository.preferences.setProtectionPausedUntil(0L)
                                             CallDetectionService.start(context)
@@ -279,7 +338,7 @@ fun HealthCheckScreen(
                                                 context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                                             }
                                         }
-                                        "overlay" -> {
+                                        "display_screen" -> {
                                             val manufacturer = Build.MANUFACTURER.uppercase()
                                             var handled = false
                                             if (manufacturer.contains("XIAOMI") || manufacturer.contains("REDMI") || manufacturer.contains("POCO")) {
@@ -306,18 +365,6 @@ fun HealthCheckScreen(
                                                 }
                                             }
                                         }
-                                        "fullscreen" -> {
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                                                val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
-                                                    data = Uri.parse("package:${context.packageName}")
-                                                }
-                                                try {
-                                                    context.startActivity(intent)
-                                                } catch (e: Exception) {
-                                                    // Fallback
-                                                }
-                                            }
-                                        }
                                         else -> {
                                             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                                 data = Uri.parse("package:${context.packageName}")
@@ -328,9 +375,13 @@ fun HealthCheckScreen(
                                 },
                                 variant = GlassButtonVariant.SECONDARY,
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.height(34.dp)
+                                modifier = Modifier.size(width = 74.dp, height = 36.dp)
                             ) {
-                                Text(stringResource(R.string.fix_action), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "Allow",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }

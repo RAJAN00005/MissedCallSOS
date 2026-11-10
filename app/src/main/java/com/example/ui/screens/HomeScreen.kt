@@ -297,10 +297,10 @@ fun HomeScreen(
                         onClick = onNavigateToHealth,
                         variant = GlassButtonVariant.SECONDARY,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.height(36.dp)
+                        modifier = Modifier.size(width = 74.dp, height = 36.dp)
                     ) {
                         Text(
-                            text = stringResource(R.string.fix_action),
+                            text = "Allow",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -467,74 +467,6 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // About Developer & App Card directly on Home Screen
-        GlassCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp)),
-            shape = RoundedCornerShape(22.dp),
-            contentPadding = 16.dp
-        ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(DesignTokens.StatusInfoBlue.copy(alpha = 0.2f))
-                                .border(1.dp, DesignTokens.StatusInfoBlue.copy(alpha = 0.4f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = DesignTokens.StatusInfoBlue,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Developed By RAAJAN",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Email: missedcallsos@gmail.com",
-                                color = Color(0xFF34D399),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.1f))
-                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                            .clickable { onNavigateToAbout() }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "About",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
 
         Spacer(modifier = Modifier.height(80.dp))
     }

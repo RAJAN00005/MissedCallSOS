@@ -31,23 +31,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.DoNotDisturbOn
-import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.PhoneCallback
-import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +49,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -72,10 +65,9 @@ import com.example.ui.theme.ProtectionVisualStatus
 
 data class PermissionStep(
     val id: String,
-    val titleRes: Int,
-    val descRes: Int,
-    val icon: ImageVector,
-    val isSystemSetting: Boolean = false
+    val title: String,
+    val desc: String,
+    val icon: ImageVector
 )
 
 @Composable
@@ -86,33 +78,61 @@ fun OnboardingScreen(
     val context = LocalContext.current
     val permissionStatus = remember { mutableStateMapOf<String, Boolean>() }
 
-    val steps = remember {
+    val corePermissionsList = remember {
         buildList {
-            add(PermissionStep("phone", R.string.permission_phone_title, R.string.permission_phone_desc, Icons.Default.Phone))
-            add(PermissionStep("call_log", R.string.permission_call_log_title, R.string.permission_call_log_desc, Icons.Default.PhoneCallback))
-            add(PermissionStep("contacts", R.string.permission_contacts_title, R.string.permission_contacts_desc, Icons.Default.Contacts))
-            add(PermissionStep("overlay", R.string.permission_overlay_title, R.string.permission_overlay_desc, Icons.Default.Layers, isSystemSetting = true))
-            add(PermissionStep("dnd", R.string.permission_dnd_title, R.string.permission_dnd_desc, Icons.Default.DoNotDisturbOn, isSystemSetting = true))
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                add(PermissionStep("fullscreen", R.string.permission_fullscreen_title, R.string.permission_fullscreen_desc, Icons.Default.Fullscreen, isSystemSetting = true))
+            add(Manifest.permission.READ_PHONE_STATE)
+            add(Manifest.permission.READ_CALL_LOG)
+            add(Manifest.permission.READ_CONTACTS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
             }
-            add(PermissionStep("battery", R.string.permission_battery_title, R.string.permission_battery_desc, Icons.Default.BatteryAlert, isSystemSetting = true))
-        }
+        }.toTypedArray()
+    }
+
+    val steps = remember {
+        listOf(
+            PermissionStep(
+                id = "core_telephony",
+                title = "Call & Contacts Shield",
+                desc = "Detects repeated calls & trusted emergency contacts.",
+                icon = Icons.Default.Phone
+            ),
+            PermissionStep(
+                id = "display_overlay",
+                title = "Lockscreen Alarm Display",
+                desc = "Shows red alarm screen with dismiss button over lockscreen.",
+                icon = Icons.Default.Layers
+            ),
+            PermissionStep(
+                id = "dnd",
+                title = "Silent Mode Alarm Bypass",
+                desc = "Allows siren to ring at full volume in Silent or DND.",
+                icon = Icons.Default.DoNotDisturbOn
+            ),
+            PermissionStep(
+                id = "battery",
+                title = "24/7 Background Guard",
+                desc = "Keeps call monitoring alive when screen is off.",
+                icon = Icons.Default.BatteryAlert
+            )
+        )
     }
 
     fun checkAll() {
-        permissionStatus["phone"] = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-        permissionStatus["call_log"] = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
-        permissionStatus["contacts"] = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
-
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        permissionStatus["dnd"] = nm.isNotificationPolicyAccessGranted
-        permissionStatus["overlay"] = Settings.canDrawOverlays(context)
-        permissionStatus["fullscreen"] = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            nm.canUseFullScreenIntent()
+        val hasPhone = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+        val hasCallLog = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+        val hasContacts = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        val hasNotification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         } else {
             true
         }
+
+        permissionStatus["core_telephony"] = hasPhone && hasCallLog && hasContacts && hasNotification
+
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        permissionStatus["dnd"] = nm.isNotificationPolicyAccessGranted
+        permissionStatus["display_overlay"] = Settings.canDrawOverlays(context)
 
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         permissionStatus["battery"] = pm.isIgnoringBatteryOptimizations(context.packageName)
@@ -128,57 +148,54 @@ fun OnboardingScreen(
         checkAll()
     }
 
+    val grantedCount = steps.count { permissionStatus[it.id] == true }
+    val totalCount = steps.size
+
     GlassBackground(status = ProtectionVisualStatus.ACTIVE) {
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 24.dp)
+                .padding(horizontal = 20.dp, vertical = 20.dp)
         ) {
             // Header
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(13.dp))
                         .background(Brush.linearGradient(listOf(Color(0xFF2563EB), Color(0xFF1E3A8A))))
-                        .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(14.dp)),
+                        .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(13.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     androidx.compose.foundation.Image(
                         painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_launcher_foreground),
                         contentDescription = "App logo",
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(36.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
                         text = stringResource(R.string.onboarding_title),
-                        fontSize = 26.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
-                    if (com.example.util.DeveloperInfo.hasDeveloperName) {
-                        Text(
-                            text = "by ${com.example.util.DeveloperInfo.developerName}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = DesignTokens.StatusInfoBlue
-                        )
-                    }
                 }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = stringResource(R.string.onboarding_subtitle),
-                fontSize = 14.sp,
-                color = GlassTheme.tokens.textSecondary
+                text = "Permissions are simplified into 4 sleek steps so you can get protected quickly.",
+                fontSize = 13.sp,
+                color = GlassTheme.tokens.textSecondary,
+                lineHeight = 18.sp
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            // Permissions list
+            // Uniform Sleek Permissions list
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -187,18 +204,20 @@ fun OnboardingScreen(
                     val isGranted = permissionStatus[step.id] == true
 
                     GlassCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = 14.dp
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(76.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        contentPadding = 12.dp
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxSize(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Icon Box
+                            // Uniform Icon Box
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
+                                    .size(38.dp)
                                     .clip(CircleShape)
                                     .background(
                                         if (isGranted) DesignTokens.StatusActiveGreen.copy(alpha = 0.2f)
@@ -206,7 +225,7 @@ fun OnboardingScreen(
                                     )
                                     .border(
                                         1.dp,
-                                        if (isGranted) DesignTokens.StatusActiveGreen else Color.White.copy(alpha = 0.2f),
+                                        if (isGranted) DesignTokens.StatusActiveGreen else Color.White.copy(alpha = 0.18f),
                                         CircleShape
                                     ),
                                 contentAlignment = Alignment.Center
@@ -215,48 +234,58 @@ fun OnboardingScreen(
                                     imageVector = step.icon,
                                     contentDescription = null,
                                     tint = if (isGranted) DesignTokens.StatusActiveGreen else DesignTokens.StatusInfoBlue,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
 
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            // Details
-                            Column(modifier = Modifier.weight(1f)) {
+                            // Details (sleek typography, no word-wrapping badges)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Text(
-                                    text = stringResource(step.titleRes),
+                                    text = step.title,
                                     color = Color.White,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = stringResource(step.descRes),
+                                    text = step.desc,
                                     color = GlassTheme.tokens.textSecondary,
-                                    fontSize = 12.sp,
-                                    lineHeight = 16.sp
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
 
-                            // Action button or granted chip
+                            // Uniform Action / Status Pill - Exactly 74.dp width and 36.dp height on all cards
                             if (isGranted) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(DesignTokens.StatusActiveGreen.copy(alpha = 0.2f))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .size(width = 74.dp, height = 36.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(DesignTokens.StatusActiveGreen.copy(alpha = 0.18f))
+                                        .border(1.dp, DesignTokens.StatusActiveGreen.copy(alpha = 0.4f), RoundedCornerShape(12.dp)),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
                                             imageVector = Icons.Default.Check,
-                                            contentDescription = "Granted",
+                                            contentDescription = "Allowed",
                                             tint = DesignTokens.StatusActiveGreen,
                                             modifier = Modifier.size(14.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
                                         Text(
-                                            text = stringResource(R.string.status_granted),
+                                            text = "Allowed",
                                             color = DesignTokens.StatusActiveGreen,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
@@ -267,28 +296,25 @@ fun OnboardingScreen(
                                 GlassButton(
                                     onClick = {
                                         when (step.id) {
-                                            "phone" -> multiplePermissionLauncher.launch(arrayOf(Manifest.permission.READ_PHONE_STATE))
-                                            "call_log" -> multiplePermissionLauncher.launch(arrayOf(Manifest.permission.READ_CALL_LOG))
-                                            "contacts" -> multiplePermissionLauncher.launch(arrayOf(Manifest.permission.READ_CONTACTS))
-                                            "overlay" -> {
-                                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
-                                                    data = Uri.parse("package:${context.packageName}")
-                                                }
-                                                try {
-                                                    context.startActivity(intent)
-                                                } catch (_: Exception) {
-                                                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                        data = Uri.parse("package:${context.packageName}")
-                                                    })
-                                                }
+                                            "core_telephony" -> {
+                                                multiplePermissionLauncher.launch(corePermissionsList)
                                             }
-                                            "dnd" -> {
-                                                val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
-                                                context.startActivity(intent)
-                                            }
-                                            "fullscreen" -> {
-                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                                                    val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                                            "display_overlay" -> {
+                                                val manufacturer = Build.MANUFACTURER.uppercase()
+                                                var handled = false
+                                                if (manufacturer.contains("XIAOMI") || manufacturer.contains("REDMI") || manufacturer.contains("POCO")) {
+                                                    try {
+                                                        val miuiIntent = Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                                                            setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                                                            putExtra("extra_pkgname", context.packageName)
+                                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                        }
+                                                        context.startActivity(miuiIntent)
+                                                        handled = true
+                                                    } catch (_: Exception) {}
+                                                }
+                                                if (!handled) {
+                                                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
                                                         data = Uri.parse("package:${context.packageName}")
                                                     }
                                                     try {
@@ -300,6 +326,10 @@ fun OnboardingScreen(
                                                     }
                                                 }
                                             }
+                                            "dnd" -> {
+                                                val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                                                context.startActivity(intent)
+                                            }
                                             "battery" -> {
                                                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                                                     data = Uri.parse("package:${context.packageName}")
@@ -307,20 +337,19 @@ fun OnboardingScreen(
                                                 try {
                                                     context.startActivity(intent)
                                                 } catch (e: Exception) {
-                                                    // Fallback
                                                     context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                                                 }
                                             }
                                         }
                                     },
                                     variant = GlassButtonVariant.SECONDARY,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.height(38.dp)
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.size(width = 74.dp, height = 36.dp)
                                 ) {
                                     Text(
-                                        text = stringResource(R.string.fix_action),
+                                        text = "Allow",
                                         fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
@@ -338,10 +367,13 @@ fun OnboardingScreen(
                     onComplete()
                 },
                 variant = GlassButtonVariant.PRIMARY,
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.get_started),
+                    text = if (grantedCount == totalCount) "All Set - Start Protection" else stringResource(R.string.get_started),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )

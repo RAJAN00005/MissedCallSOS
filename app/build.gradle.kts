@@ -23,9 +23,9 @@ android {
 
     val devName = (project.findProperty("developerName") as? String) ?: "RAAJAN"
     val devEmail = (project.findProperty("contactEmail") as? String) ?: "missedcallsos@gmail.com"
-    val webUrl = (project.findProperty("appWebsiteUrl") as? String) ?: ""
+    val webUrl = (project.findProperty("appWebsiteUrl") as? String) ?: "https://github.com/RAJAN00005/MissedCallSOS"
     val privacyUrl = (project.findProperty("appPrivacyPolicyUrl") as? String) ?: ""
-    val dlUrl = (project.findProperty("downloadUrl") as? String) ?: "https://github.com/raajan/MissedCallSOS/releases"
+    val dlUrl = (project.findProperty("downloadUrl") as? String) ?: "https://github.com/RAJAN00005/MissedCallSOS/releases"
     val currentYear = "2026"
 
     buildConfigField("String", "DEVELOPER_NAME", "\"$devName\"")

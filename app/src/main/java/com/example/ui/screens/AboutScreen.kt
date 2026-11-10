@@ -28,12 +28,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Source
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -42,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.example.util.AppShareHelper
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,6 +78,7 @@ fun AboutScreen(
 ) {
     val context = LocalContext.current
     BackHandler { onNavigateBack() }
+    var showShareDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -275,22 +279,7 @@ fun AboutScreen(
 
         // Share App Button Card
         GlassButton(
-            onClick = {
-                val shareText = if (DeveloperInfo.hasDownloadUrl) {
-                    "Stay safe with MissedCall SOS - an Emergency Repeated Call Guard that rings loud alarms on urgent repeated missed calls!\n\nDownload: ${DeveloperInfo.downloadUrl}"
-                } else {
-                    "Stay safe with MissedCall SOS - Emergency Repeated Call Guard!"
-                }
-
-                val sendIntent = Intent().apply {
-                    action = Intent.ACTION_SEND
-                    putExtra(Intent.EXTRA_TEXT, shareText)
-                    putExtra(Intent.EXTRA_SUBJECT, "MissedCall SOS App")
-                    type = "text/plain"
-                }
-                val shareIntent = Intent.createChooser(sendIntent, "Share MissedCall SOS")
-                context.startActivity(shareIntent)
-            },
+            onClick = { showShareDialog = true },
             variant = GlassButtonVariant.PRIMARY,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -304,6 +293,66 @@ fun AboutScreen(
                 text = "Share App",
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp
+            )
+        }
+
+        if (showShareDialog) {
+            AlertDialog(
+                onDismissRequest = { showShareDialog = false },
+                containerColor = Color(0xFF131B33),
+                title = {
+                    Text(
+                        text = "Share MissedCall SOS",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Choose how you want to share with friends and family:",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 13.sp
+                        )
+
+                        // Option 1: Send APK file directly (WhatsApp, Telegram, Bluetooth)
+                        GlassButton(
+                            onClick = {
+                                showShareDialog = false
+                                AppShareHelper.shareApkFile(context)
+                            },
+                            variant = GlassButtonVariant.PRIMARY,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.Android, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Send APK File Directly", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Option 2: Share features text
+                        GlassButton(
+                            onClick = {
+                                showShareDialog = false
+                                AppShareHelper.shareAppText(context)
+                            },
+                            variant = GlassButtonVariant.SECONDARY,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Share Features & Info", fontSize = 13.sp)
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    GlassButton(
+                        onClick = { showShareDialog = false },
+                        variant = GlassButtonVariant.SECONDARY
+                    ) {
+                        Text("Cancel")
+                    }
+                }
             )
         }
 

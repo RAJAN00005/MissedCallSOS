@@ -127,14 +127,14 @@ class MainActivity : ComponentActivity() {
                             containerColor = Color(0xFF131B33),
                             title = {
                                 Text(
-                                    text = "स्क्रीन पर अलार्म बटन के लिए अनुमति",
+                                    text = "Lockscreen Alarm Display Permission",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold
                                 )
                             },
                             text = {
                                 Text(
-                                    text = "मिस कॉल आने पर अलार्म बंद करने की लाल स्क्रीन स्क्रीन पर सबसे ऊपर अपने आप आने के लिए 'Display Over Other Apps' (या Appear on top) को Allow कर दें।\n\n(Xiaomi / Realme / Oppo यूज़र्स 'Show on lockscreen' भी Allow करें)",
+                                    text = "To pop up the emergency red alarm screen over your locked screen and active apps, please allow 'Display Over Other Apps' (Appear on top).\n\n(Xiaomi / Realme / Oppo users: also enable 'Show on lock screen').",
                                     color = Color.White.copy(alpha = 0.9f)
                                 )
                             },
@@ -172,7 +172,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     variant = GlassButtonVariant.PRIMARY
                                 ) {
-                                    Text("अभी चालू करें (Enable Now)", fontWeight = FontWeight.Bold)
+                                    Text("Enable Now", fontWeight = FontWeight.Bold)
                                 }
                             },
                             dismissButton = {
@@ -180,7 +180,7 @@ class MainActivity : ComponentActivity() {
                                     onClick = { showOverlayPrompt = false },
                                     variant = GlassButtonVariant.SECONDARY
                                 ) {
-                                    Text("बाद में (Later)")
+                                    Text("Later")
                                 }
                             }
                         )

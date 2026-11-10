@@ -40,6 +40,12 @@
     <string name="grant_permission">Grant Permission</string>
     <string name="status_granted">Granted</string>
     <string name="status_not_granted">Not Granted</string>
+    <string name="permission_combined_call_contacts_title">Call &amp; Contacts Shield (3-in-1)</string>
+    <string name="permission_combined_call_contacts_desc">Combines Phone, Call Log, and Contacts access so repeated missed calls trigger alerts in 1 single tap.</string>
+    <string name="permission_combined_display_title">Lockscreen &amp; Overlay Display</string>
+    <string name="permission_combined_display_desc">Displays the emergency red alarm screen over lockscreen and active apps.</string>
+    <string name="permission_quick_setup_title">⚡ 1-Tap Core Setup</string>
+    <string name="permission_quick_setup_desc">Tap once to grant all call &amp; contact permissions simultaneously.</string>
     <string name="permission_phone_title">Phone &amp; Call Detection</string>
     <string name="permission_phone_desc">Detects incoming calls in real-time so repeated calls trigger the SOS alarm.</string>
     <string name="permission_call_log_title">Call Log Reconciliation</string>
@@ -110,7 +116,7 @@
     <string name="settings_quality">Visual Quality</string>
     <string name="settings_reduce_transparency">Reduce Transparency (Tier C)</string>
     <string name="settings_reduce_motion">Reduce Motion</string>
-    <string name="settings_language">Language / भाषा</string>
+    <string name="settings_language">Language</string>
     <string name="settings_privacy">Data &amp; Privacy</string>
     <string name="settings_delete_all">Clear All History &amp; Data</string>
     <string name="settings_delete_all_confirm">Are you sure? This deletes all call logs, outbox queue, and contact rules.</string>
