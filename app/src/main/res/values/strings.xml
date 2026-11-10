@@ -1,0 +1,158 @@
+<resources>
+    <string name="app_name">MissedCall SOS</string>
+    
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_rules">Rules</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_health">Health</string>
+    <string name="nav_test">Test Mode</string>
+    <string name="nav_design_gallery">Design Gallery</string>
+
+    <!-- Protection Status -->
+    <string name="status_active">Protection Active</string>
+    <string name="status_paused">Protection Paused</string>
+    <string name="status_disabled">Protection Disabled</string>
+    <string name="status_attention">Action Required</string>
+    <string name="status_desc_active">Monitoring incoming repeated calls from your trusted contacts.</string>
+    <string name="status_desc_paused">Monitoring paused until %1$s.</string>
+    <string name="status_desc_disabled">Enable permissions to activate emergency protection.</string>
+    <string name="pause_protection">Pause Protection</string>
+    <string name="resume_protection">Resume Protection</string>
+    <string name="pause_1h">1 Hour</string>
+    <string name="pause_8h">8 Hours</string>
+    <string name="pause_custom">Until Resumed</string>
+
+    <!-- Stats -->
+    <string name="stat_missed_today">Missed Today</string>
+    <string name="stat_triggers_fired">Triggers Fired</string>
+    <string name="stat_protected_contacts">Protected Contacts</string>
+    <string name="last_trigger_title">Last Trigger</string>
+    <string name="no_recent_triggers">No recent emergency triggers.</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_title">MissedCall SOS</string>
+    <string name="onboarding_subtitle">Never miss urgent calls when your phone is silent, in danger, or sleeping.</string>
+    <string name="get_started">Get Started</string>
+    <string name="continue_action">Continue</string>
+    <string name="skip_action">Skip</string>
+    <string name="grant_permission">Grant Permission</string>
+    <string name="status_granted">Granted</string>
+    <string name="status_not_granted">Not Granted</string>
+    <string name="permission_phone_title">Phone &amp; Call Detection</string>
+    <string name="permission_phone_desc">Detects incoming calls in real-time so repeated calls trigger the SOS alarm.</string>
+    <string name="permission_call_log_title">Call Log Reconciliation</string>
+    <string name="permission_call_log_desc">Recovers calls missed if the app was restarted and verifies genuine missed calls.</string>
+    <string name="permission_contacts_title">Contacts Access</string>
+    <string name="permission_contacts_desc">Lets you designate family and emergency contacts who are allowed to trigger alarms.</string>
+    <string name="permission_sms_title">SMS Dispatch</string>
+    <string name="permission_sms_desc">Sends offline SOS alerts even when internet is completely off.</string>
+    <string name="permission_dnd_title">Do Not Disturb Bypass</string>
+    <string name="permission_dnd_desc">Allows loud SOS alarm tone to pierce through silent and DND modes.</string>
+    <string name="permission_fullscreen_title">Full-Screen Alarm</string>
+    <string name="permission_fullscreen_desc">Displays the emergency dismiss screen directly over your locked screen.</string>
+    <string name="permission_overlay_title">Display Over Other Apps</string>
+    <string name="permission_overlay_desc">Required to pop up the red alarm screen over the lock screen and other apps.</string>
+    <string name="permission_battery_title">Battery Optimization</string>
+    <string name="permission_battery_desc">Prevents Android OEM task killers from shutting down call protection in the background.</string>
+
+    <!-- Contacts & Rules -->
+    <string name="tab_alarm_contacts">Alarm Contacts</string>
+    <string name="search_contacts">Search contacts...</string>
+    <string name="no_contacts_found">No contacts found</string>
+    <string name="no_contacts_yet">You haven\'t added any contacts yet.</string>
+    <string name="add_contacts_hint">Add trusted contacts from your phonebook or enter their number to enable emergency protection.</string>
+    <string name="add_contact">Add Contact</string>
+    <string name="pick_from_phonebook">Import from Phonebook</string>
+    <string name="manual_entry">Enter Number Manually</string>
+    <string name="remove_contact">Remove Contact</string>
+    <string name="remove_selected">Remove Selected</string>
+    <string name="remove_confirm_title">Remove %1$d contacts?</string>
+    <string name="remove_scope_title">Removal Options</string>
+    <string name="remove_alarm_only">Remove from Alarm list only</string>
+    <string name="remove_completely">Remove completely from SOS</string>
+    <string name="also_delete_history">Also delete call &amp; trigger history</string>
+    <string name="contact_removed">Contact removed</string>
+    <string name="undo">Undo</string>
+    <string name="remove_all_contacts">Remove All Contacts</string>
+    <string name="remove_all_contacts_confirm">Are you sure you want to remove all contacts and custom emergency rules?</string>
+    <string name="toggle_alarm">Loud SOS Alarm</string>
+    <string name="per_contact_threshold">Custom Threshold</string>
+    <string name="selected_contacts_count">%1$d selected</string>
+    <string name="enable_alarm">Enable Alarm</string>
+    <string name="group_family">Family</string>
+    <string name="group_emergency">Emergency</string>
+    <string name="group_custom">Custom</string>
+
+    <!-- Settings -->
+    <string name="settings_trigger_rules">Trigger Rules</string>
+    <string name="settings_threshold_label">Missed Call Threshold</string>
+    <string name="settings_threshold_summary">Alarm will ring after %1$d missed calls from the same contact.</string>
+    <string name="settings_window_label">Sliding Time Window</string>
+    <string name="settings_window_summary">Calls must happen within %1$d minutes.</string>
+    <string name="settings_cooldown_label">Trigger Cooldown</string>
+    <string name="settings_cooldown_summary">Wait %1$d minutes before re-triggering for the same contact.</string>
+    <string name="settings_alarm_sound">Alarm Sound &amp; Screen</string>
+    <string name="settings_tone">Alarm Tone</string>
+    <string name="settings_alarm_duration">Max Alarm Duration</string>
+    <string name="settings_flash_toggle">Flashlight Strobe during Alarm</string>
+    <string name="settings_vibrate_toggle">Intense Vibration Pattern</string>
+    <string name="settings_dual_sim_sms">Dual SIM &amp; Emergency SMS</string>
+    <string name="settings_sim_slot">SIM Card for SMS</string>
+    <string name="settings_sim_auto">Default SIM</string>
+    <string name="settings_sim_1">SIM 1</string>
+    <string name="settings_sim_2">SIM 2</string>
+    <string name="settings_security">Security &amp; PIN</string>
+    <string name="settings_pin_protect">Require PIN to dismiss SOS</string>
+    <string name="settings_appearance">Appearance &amp; Performance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_quality">Visual Quality</string>
+    <string name="settings_reduce_transparency">Reduce Transparency (Tier C)</string>
+    <string name="settings_reduce_motion">Reduce Motion</string>
+    <string name="settings_language">Language / भाषा</string>
+    <string name="settings_privacy">Data &amp; Privacy</string>
+    <string name="settings_delete_all">Clear All History &amp; Data</string>
+    <string name="settings_delete_all_confirm">Are you sure? This deletes all call logs, outbox queue, and contact rules.</string>
+
+    <!-- Alarm Screen -->
+    <string name="alarm_title">EMERGENCY MISSED CALL ALERT</string>
+    <string name="alarm_subtitle">Repeated missed calls detected</string>
+    <string name="alarm_caller_count">%1$s missed calls</string>
+    <string name="alarm_slide_to_stop">SLIDE TO STOP ALARM</string>
+    <string name="alarm_call_back">CALL BACK</string>
+    <string name="alarm_pin_prompt">Enter 4-digit PIN to dismiss</string>
+    <string name="alarm_pin_incorrect">Incorrect PIN. Try again.</string>
+    <string name="stop_alarm">STOP ALARM</string>
+
+    <!-- Health Check -->
+    <string name="health_check_title">System Reliability Health</string>
+    <string name="health_score">%1$d/%2$d Healthy</string>
+    <string name="health_all_good">All systems fully operational! Your protection is rock solid.</string>
+    <string name="fix_action">Fix</string>
+    <string name="health_item_service">Protection Service Running</string>
+    <string name="health_item_dnd">Do Not Disturb Policy Access</string>
+    <string name="health_item_battery">Battery Optimization Ignored</string>
+    <string name="health_item_fullscreen">Full-Screen Lock Intent</string>
+    <string name="health_item_sms">SMS Dispatch Ready</string>
+    <string name="health_item_oem">OEM Auto-Start / Background Guide</string>
+
+    <!-- Test Mode -->
+    <string name="test_mode_title">Simulate Missed Calls</string>
+    <string name="test_mode_desc">Verify alarm playback, lock-screen trigger, and offline SMS outbox without needing a second phone.</string>
+    <string name="test_select_contact">Select Contact to Simulate</string>
+    <string name="test_calls_to_simulate">Number of Simulated Calls</string>
+    <string name="test_run_simulation">Run Simulation</string>
+    <string name="test_step_calling">Simulating incoming call %1$d/%2$d…</string>
+    <string name="test_step_threshold">Threshold reached! Triggering SOS…</string>
+    <string name="test_step_alarm">Alarm service invoked</string>
+    <string name="test_step_sms">Emergency SMS prepared in outbox</string>
+
+    <!-- History -->
+    <string name="history_title">Activity &amp; Trigger History</string>
+    <string name="history_filter_all">All</string>
+    <string name="history_filter_triggers">Triggers</string>
+    <string name="history_filter_calls">Missed Calls</string>
+    <string name="history_filter_sms">SMS Outbox</string>
+    <string name="history_empty">No activity recorded yet.</string>
+</resources>

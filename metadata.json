@@ -1,0 +1,6 @@
+{
+  "name": "MissedCall SOS",
+  "description": "Protection against repeated missed calls with emergency loud SOS alarms and automatic offline emergency alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

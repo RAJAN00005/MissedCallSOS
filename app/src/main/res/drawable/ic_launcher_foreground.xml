@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Emergency Shield -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,18 C65,26 78,28 84,28 C84,54 71,76 54,88 C37,76 24,54 24,28 C30,28 43,26 54,18 Z" />
+    <!-- Inner Shield Depth -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M54,23 C63,30 74,32 79,32 C79,53 68,71 54,82 C40,71 29,53 29,32 C34,32 45,30 54,23 Z" />
+    <!-- Center Telephone Handset -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M58.5,56.5 C56.2,54.2 54.3,52.4 52.1,50.2 C50.5,51.8 49.2,52.9 47.8,51.5 L44.2,47.9 C42.8,46.5 43.9,45.2 45.5,43.6 C43.3,41.4 41.5,39.5 39.2,37.2 C37.8,38.6 36.6,40.1 36.1,41.9 C35.4,44.7 36.5,48.2 39.8,52.8 C43.5,58.0 48.0,62.5 53.2,66.2 C57.8,69.5 61.3,70.6 64.1,69.9 C65.9,69.4 67.4,68.2 68.8,66.8 C66.5,64.5 64.6,62.7 62.4,60.5 C60.8,62.1 59.9,61.9 58.5,56.5 Z" />
+    <!-- Sound Waves / SOS Pulse -->
+    <path
+        android:fillColor="#F43F5E"
+        android:pathData="M66,38 C68,40 69,43 69,46 C69,49 68,52 66,54 L69,57 C72,54 73,50 73,46 C73,42 72,38 69,35 Z" />
+    <path
+        android:fillColor="#FB7185"
+        android:pathData="M73,31 C76,35 78,40 78,46 C78,52 76,57 73,61 L76,64 C80,59 82,53 82,46 C82,39 80,33 76,28 Z" />
+</vector>
