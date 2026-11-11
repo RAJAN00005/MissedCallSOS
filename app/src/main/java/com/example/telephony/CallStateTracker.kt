@@ -309,6 +309,14 @@ object CallStateTracker {
             putExtra(SosAlarmService.EXTRA_VIBRATION, repository.preferences.isVibrationEnabled())
         }
 
+        // Immediately show the System Overlay Window if SYSTEM_ALERT_WINDOW is granted
+        com.example.alarm.SosAlarmOverlayManager.show(
+            context = context,
+            callerName = displayName ?: number,
+            callerNumber = number,
+            missedCount = missedCount
+        )
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -318,7 +326,7 @@ object CallStateTracker {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start SosAlarmService: ${e.message}, executing direct emergency alarm fallback")
             try {
-                // Direct emergency playback fallback
+                // Direct emergency playback + StateFlow + Overlay fallback
                 com.example.alarm.SosAlarmManager.startSosAlarm(
                     context = context,
                     callerName = displayName ?: number,
@@ -337,6 +345,20 @@ object CallStateTracker {
                 )
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
                 nm?.notify(com.example.alarm.SosAlarmManager.NOTIFICATION_ID_ALARM, notification)
+
+                // Direct Activity launch
+                val activityIntent = Intent(context, com.example.ui.alarm.SosAlarmActivity::class.java).apply {
+                    setAction("com.example.action.SHOW_SOS_ALARM")
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                        Intent.FLAG_ACTIVITY_NO_USER_ACTION
+                    )
+                    putExtra(com.example.ui.alarm.SosAlarmActivity.EXTRA_CALLER_NAME, displayName ?: number)
+                    putExtra(com.example.ui.alarm.SosAlarmActivity.EXTRA_CALLER_NUMBER, number)
+                    putExtra(com.example.ui.alarm.SosAlarmActivity.EXTRA_MISSED_COUNT, missedCount)
+                }
+                context.startActivity(activityIntent)
             } catch (fallbackError: Exception) {
                 Log.e(TAG, "Direct alarm fallback failed: ${fallbackError.message}")
             }

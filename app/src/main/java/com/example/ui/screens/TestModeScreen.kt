@@ -1,10 +1,9 @@
 package com.example.ui.screens
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
+import android.content.Intent
+import android.os.Build
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,8 +24,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Sms
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -51,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.entity.ContactRuleEntity
 import com.example.data.repository.SosRepository
+import com.example.service.SosAlarmService
 import com.example.telephony.CallStateTracker
 import com.example.telephony.PhoneNumberHelper
 import com.example.ui.components.GlassButton
@@ -102,7 +101,7 @@ fun TestModeScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Runs REAL pipeline with isTest = true isolation",
+                    text = "Verify alarm sound & animated lockscreen dismiss UI",
                     color = GlassTheme.tokens.textSecondary,
                     fontSize = 12.sp
                 )
@@ -134,7 +133,101 @@ fun TestModeScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Setup Card
+        // 1-Tap Instant Alarm & Off-Screen Test Card
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp),
+            borderBrush = Brush.linearGradient(listOf(DesignTokens.StatusCriticalRed, Color.Transparent)),
+            fillBrush = Brush.verticalGradient(
+                listOf(
+                    DesignTokens.StatusCriticalRed.copy(alpha = 0.28f),
+                    Color(0xFF1F080D).copy(alpha = 0.85f)
+                )
+            ),
+            contentPadding = 16.dp
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(DesignTokens.StatusCriticalRed.copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NotificationsActive,
+                            contentDescription = null,
+                            tint = DesignTokens.StatusCriticalRed,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Instant Alarm & Off-Screen Test",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Test the loud SOS siren and full-screen animated alarm off screen in 1 tap.",
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                GlassButton(
+                    onClick = {
+                        val previewName = testName.ifBlank {
+                            allRules.firstOrNull()?.displayName ?: "Emergency Contact"
+                        }
+                        val previewNum = testNumber.ifBlank {
+                            allRules.firstOrNull()?.rawNumber ?: "Emergency Alert"
+                        }
+                        val intent = Intent(context, SosAlarmService::class.java).apply {
+                            action = SosAlarmService.ACTION_START_ALARM
+                            putExtra(SosAlarmService.EXTRA_CALLER_NAME, previewName)
+                            putExtra(SosAlarmService.EXTRA_CALLER_NUMBER, previewNum)
+                            putExtra(SosAlarmService.EXTRA_MISSED_COUNT, callsToSimulate)
+                            putExtra(SosAlarmService.EXTRA_TONE, repository.preferences.getAlarmTone())
+                            putExtra(SosAlarmService.EXTRA_MAX_DURATION, repository.preferences.getMaxAlarmDurationMinutes())
+                            putExtra(SosAlarmService.EXTRA_FLASHLIGHT, repository.preferences.isFlashlightEnabled())
+                            putExtra(SosAlarmService.EXTRA_VIBRATION, repository.preferences.isVibrationEnabled())
+                        }
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(intent)
+                            } else {
+                                context.startService(intent)
+                            }
+                        } catch (_: Exception) {
+                            com.example.alarm.SosAlarmManager.startSosAlarm(
+                                context = context,
+                                callerName = previewName,
+                                callerNumber = previewNum,
+                                missedCount = callsToSimulate
+                            )
+                        }
+                    },
+                    variant = GlassButtonVariant.DESTRUCTIVE,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NotificationsActive,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Trigger Alarm & Off Screen Now", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Setup Card for Multi-Call Pipeline Simulation
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
@@ -142,7 +235,7 @@ fun TestModeScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(
-                    text = "Simulation Settings",
+                    text = "Full Call Pipeline Simulation",
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
@@ -298,7 +391,7 @@ fun TestModeScreen(
                 }
             },
             text = {
-                Text("This test will execute the REAL counting pipeline with isTest = true (isolated from Home stats).\n\nAn emergency alert SMS will be queued for $testNumber.\n\nProceed?")
+                Text("This test will execute the REAL counting pipeline with isTest = true (isolated from Home stats) and trigger the SOS Alarm Screen.\n\nProceed?")
             },
             confirmButton = {
                 GlassButton(
@@ -309,10 +402,10 @@ fun TestModeScreen(
                         scope.launch {
                             val norm = PhoneNumberHelper.normalizeToE164(testNumber)
 
-                            // Ensure contact rule exists so trigger can fire
-                            var rule = repository.getRuleForNumber(norm)
-                            if (rule == null) {
-                                rule = ContactRuleEntity(
+                            // Ensure contact rule exists and threshold matches callsToSimulate so alarm triggers reliably
+                            val existingRule = repository.getRuleForNumber(norm)
+                            val rule = if (existingRule == null) {
+                                val newRule = ContactRuleEntity(
                                     displayName = testName,
                                     rawNumber = testNumber,
                                     normalizedNumber = norm,
@@ -320,13 +413,21 @@ fun TestModeScreen(
                                     isLocationEnabled = false,
                                     customThreshold = callsToSimulate
                                 )
-                                repository.saveRule(rule)
+                                repository.saveRule(newRule)
+                                newRule
+                            } else {
+                                val updated = existingRule.copy(
+                                    isAlarmEnabled = true,
+                                    customThreshold = callsToSimulate
+                                )
+                                repository.saveRule(updated)
+                                updated
                             }
 
                             for (i in 1..callsToSimulate) {
-                                currentStep = "Simulating incoming call $i of $callsToSimulate (isTest = true)..."
-                                stepLogs = stepLogs + "[TEST] Call $i from $testName ($norm)"
-                                CallStateTracker.processMissedCall(
+                                currentStep = "Simulating incoming call $i of $callsToSimulate..."
+                                stepLogs = stepLogs + "[TEST] Call $i from ${rule.displayName} ($norm)"
+                                CallStateTracker.processMissedCallInternal(
                                     context = context,
                                     repository = repository,
                                     rawNumber = testNumber,
@@ -334,11 +435,11 @@ fun TestModeScreen(
                                     simSlot = 0,
                                     isTest = true
                                 )
-                                delay(300)
+                                delay(250)
                             }
 
-                            currentStep = "Threshold reached! SOS Alarm & Emergency SMS triggered (isTest = true)!"
-                            stepLogs = stepLogs + "[TEST] Threshold reached ($callsToSimulate calls). Alarm and SMS queued."
+                            currentStep = "Threshold reached! SOS Alarm & Off Screen triggered!"
+                            stepLogs = stepLogs + "[TEST] Threshold reached ($callsToSimulate calls). SOS Alarm screen launched."
                             isRunning = false
                         }
                     },

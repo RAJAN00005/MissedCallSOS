@@ -182,7 +182,8 @@ fun HomeScreen(
         }
 
         // Active Emergency SOS Alarm Banner (if currently sounding)
-        val isAlarmActive = com.example.alarm.SosAlarmManager.isAlarmActive
+        val alarmState by com.example.alarm.SosAlarmManager.alarmStateFlow.collectAsState()
+        val isAlarmActive = alarmState.isActive
         if (isAlarmActive) {
             Spacer(modifier = Modifier.height(10.dp))
             GlassCard(
@@ -193,15 +194,15 @@ fun HomeScreen(
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                             putExtra(
                                 com.example.ui.alarm.SosAlarmActivity.EXTRA_CALLER_NAME,
-                                com.example.alarm.SosAlarmManager.activeCallerName ?: com.example.alarm.SosAlarmManager.activeCallerNumber
+                                alarmState.callerName.ifBlank { alarmState.callerNumber }
                             )
                             putExtra(
                                 com.example.ui.alarm.SosAlarmActivity.EXTRA_CALLER_NUMBER,
-                                com.example.alarm.SosAlarmManager.activeCallerNumber
+                                alarmState.callerNumber
                             )
                             putExtra(
                                 com.example.ui.alarm.SosAlarmActivity.EXTRA_MISSED_COUNT,
-                                com.example.alarm.SosAlarmManager.activeMissedCount
+                                alarmState.missedCount
                             )
                         }
                         context.startActivity(alarmIntent)

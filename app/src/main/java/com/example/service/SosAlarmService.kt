@@ -4,8 +4,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import com.example.alarm.SosAlarmManager
+import com.example.alarm.SosAlarmOverlayManager
 import com.example.ui.alarm.SosAlarmActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +23,8 @@ class SosAlarmService : Service() {
         val action = intent?.action
 
         if (action == ACTION_STOP_ALARM) {
+            SosAlarmManager.stopSosAlarm(this)
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -33,32 +37,34 @@ class SosAlarmService : Service() {
         val flashlight = intent?.getBooleanExtra(EXTRA_FLASHLIGHT, true) ?: true
         val vibration = intent?.getBooleanExtra(EXTRA_VIBRATION, true) ?: true
 
-        // 1. Build & show high-priority alarm notification
+        // 1. Build & show high-priority full-screen alarm notification via startForeground ONLY
+        // (Do NOT call nm.notify with the same ID immediately after startForeground, as Android treats
+        // duplicate posts as updates and suppresses fullScreenIntent!)
         val notification = SosAlarmManager.buildAlarmNotification(
             context = this,
             callerName = callerName,
             callerNumber = callerNumber,
             missedCount = missedCount
         )
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            startForeground(
-                SosAlarmManager.NOTIFICATION_ID_ALARM,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
-            startForeground(SosAlarmManager.NOTIFICATION_ID_ALARM, notification)
-        }
-
-        // Explicitly notify via NotificationManager so SystemUI pops up the full-screen window immediately
         try {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-            nm?.notify(SosAlarmManager.NOTIFICATION_ID_ALARM, notification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    SosAlarmManager.NOTIFICATION_ID_ALARM,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(SosAlarmManager.NOTIFICATION_ID_ALARM, notification)
+            }
         } catch (e: Exception) {
-            android.util.Log.e("SosAlarmService", "Failed to explicitly notify: ${e.message}")
+            android.util.Log.e("SosAlarmService", "startForeground failed: ${e.message}")
+            try {
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                nm?.notify(SosAlarmManager.NOTIFICATION_ID_ALARM, notification)
+            } catch (_: Exception) {}
         }
 
-        // 2. Start sound, vibration, flashlight, and wake lock
+        // 2. Start sound, vibration, flashlight, wake lock, StateFlow update, AND System Overlay Window
         SosAlarmManager.startSosAlarm(
             context = this,
             callerName = callerName,
@@ -69,85 +75,79 @@ class SosAlarmService : Service() {
             enableVibration = vibration
         )
 
-        // 3. Launch full-screen lock activity
+        // 3. Also launch full-screen SosAlarmActivity (for lockscreen and devices without overlay permission)
         val alarmIntent = Intent(this, SosAlarmActivity::class.java).apply {
             setAction("com.example.action.SHOW_SOS_ALARM")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                Intent.FLAG_ACTIVITY_NO_USER_ACTION
+            )
             putExtra(SosAlarmActivity.EXTRA_CALLER_NAME, callerName ?: callerNumber)
             putExtra(SosAlarmActivity.EXTRA_CALLER_NUMBER, callerNumber)
             putExtra(SosAlarmActivity.EXTRA_MISSED_COUNT, missedCount)
         }
 
-        // Allow background activity launch on Android 14+ (API 34+)
-        val activityOptionsBundle = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        // Direct startActivity
+        try {
+            startActivity(alarmIntent)
+        } catch (e: Exception) {
+            android.util.Log.e("SosAlarmService", "Direct startActivity: ${e.message}")
+        }
+
+        // PendingIntent send with Android 14+ (API 34+) background activity launch mode
+        val creatorOptions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             try {
                 android.app.ActivityOptions.makeBasic().apply {
-                    setPendingIntentBackgroundActivityStartMode(
+                    setPendingIntentCreatorBackgroundActivityStartMode(
                         android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
                     )
                 }.toBundle()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null
             }
         } else {
             null
         }
 
-        // Method A: Direct startActivity
-        try {
-            if (activityOptionsBundle != null) {
-                startActivity(alarmIntent, activityOptionsBundle)
-            } else {
-                startActivity(alarmIntent)
+        val senderOptions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                android.app.ActivityOptions.makeBasic().apply {
+                    setPendingIntentBackgroundActivityStartMode(
+                        android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    )
+                }.toBundle()
+            } catch (_: Exception) {
+                null
             }
-        } catch (e: Exception) {
-            android.util.Log.e("SosAlarmService", "Direct startActivity: ${e.message}")
+        } else {
+            null
         }
 
-        // Method B: Fire fullScreenPendingIntent with background activity options
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
             1001,
             alarmIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            activityOptionsBundle
+            creatorOptions
         )
+
         try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE && activityOptionsBundle != null) {
-                fullScreenPendingIntent.send(this, 0, null, null, null, null, activityOptionsBundle)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && senderOptions != null) {
+                fullScreenPendingIntent.send(this, 0, null, null, null, null, senderOptions)
             } else {
                 fullScreenPendingIntent.send()
             }
         } catch (e: Exception) {
-            android.util.Log.e("SosAlarmService", "Failed to send fullScreenPendingIntent: ${e.message}")
-        }
-
-        // Method C: AlarmManager.setAlarmClock (official OS exemption for background activity starts)
-        try {
-            val alarmManager = getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
-            val canSchedule = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                alarmManager?.canScheduleExactAlarms() == true
-            } else {
-                true
-            }
-            if (alarmManager != null && canSchedule) {
-                val clockInfo = android.app.AlarmManager.AlarmClockInfo(
-                    System.currentTimeMillis() + 50L,
-                    fullScreenPendingIntent
-                )
-                alarmManager.setAlarmClock(clockInfo, fullScreenPendingIntent)
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("SosAlarmService", "Failed to setAlarmClock: ${e.message}")
+            android.util.Log.e("SosAlarmService", "PendingIntent send: ${e.message}")
         }
 
         // 4. Auto-stop timer
         autoStopJob?.cancel()
         autoStopJob = scope.launch {
             delay(maxDurationMinutes * 60_000L)
+            SosAlarmManager.stopSosAlarm(this@SosAlarmService)
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
 
@@ -175,10 +175,16 @@ class SosAlarmService : Service() {
         const val EXTRA_VIBRATION = "extra_vibration"
 
         fun stop(context: Context) {
-            val intent = Intent(context, SosAlarmService::class.java).apply {
-                action = ACTION_STOP_ALARM
-            }
-            context.startService(intent)
+            val appContext = context.applicationContext
+            // Immediately stop sound, vibration, flashlight, overlay, and reset StateFlow
+            SosAlarmManager.stopSosAlarm(appContext)
+            SosAlarmOverlayManager.dismiss()
+            try {
+                val intent = Intent(appContext, SosAlarmService::class.java).apply {
+                    action = ACTION_STOP_ALARM
+                }
+                appContext.stopService(intent)
+            } catch (_: Exception) {}
         }
     }
 }

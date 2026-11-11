@@ -49,11 +49,13 @@
         <activity
             android:name=".ui.alarm.SosAlarmActivity"
             android:exported="true"
-            android:launchMode="singleTask"
+            android:launchMode="singleInstance"
+            android:taskAffinity="com.raajan.missedcallsos.alarm"
             android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:showForAllUsers="true"
+            android:directBootAware="true"
             android:theme="@style/Theme.SosAlarm">
             <intent-filter>
                 <action android:name="com.example.action.SHOW_SOS_ALARM" />

@@ -29,13 +29,23 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.sin
 
+data class AlarmUiState(
+    val isActive: Boolean = false,
+    val callerName: String = "Emergency Contact",
+    val callerNumber: String = "",
+    val missedCount: Int = 5
+)
+
 object SosAlarmManager {
-    const val CHANNEL_ID_ALARM = "sos_emergency_alarm_v7"
+    const val CHANNEL_ID_ALARM = "sos_emergency_alarm_v8"
     const val CHANNEL_ID_PROTECTION = "sos_protection_channel"
     const val NOTIFICATION_ID_ALARM = 9001
     const val NOTIFICATION_ID_PROTECTION = 9002
@@ -52,6 +62,9 @@ object SosAlarmManager {
     private var audioFocusRequest: Any? = null
     private val alarmScope = CoroutineScope(Dispatchers.Default)
 
+    private val _alarmStateFlow = MutableStateFlow(AlarmUiState())
+    val alarmStateFlow: StateFlow<AlarmUiState> = _alarmStateFlow.asStateFlow()
+
     @Volatile var isAlarmActive: Boolean = false
         private set
     @Volatile var activeCallerName: String? = null
@@ -66,29 +79,27 @@ object SosAlarmManager {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             try {
+                nm.deleteNotificationChannel("sos_emergency_alarm_v7")
                 nm.deleteNotificationChannel("sos_loud_alarm_channel_v4")
                 nm.deleteNotificationChannel("sos_loud_alarm_channel_v3")
                 nm.deleteNotificationChannel("sos_loud_alarm_channel_v2")
             } catch (_: Exception) {}
 
-            // Alarm channel that overrides DND
+            // High-importance alarm channel that overrides DND and enables lockscreen full-screen intents
             val alarmChannel = NotificationChannel(
                 CHANNEL_ID_ALARM,
                 "Emergency SOS Alarm Screen",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Critical SOS alarm for repeated missed calls"
+                description = "Critical SOS alarm and full-screen lockscreen alert for repeated missed calls"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 800, 200, 800, 200, 800)
                 setBypassDnd(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 enableLights(true)
                 lightColor = android.graphics.Color.RED
-                val alarmAudioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), alarmAudioAttributes)
+                // Sound is played directly by SosAlarmManager (MediaPlayer + AudioTrack siren)
+                setSound(null, null)
             }
             nm.createNotificationChannel(alarmChannel)
 
@@ -114,10 +125,25 @@ object SosAlarmManager {
         enableFlashlight: Boolean = true,
         enableVibration: Boolean = true
     ) {
+        val resolvedName = callerName?.takeIf { it.isNotBlank() } ?: callerNumber
         isAlarmActive = true
-        activeCallerName = callerName
+        activeCallerName = resolvedName
         activeCallerNumber = callerNumber
         activeMissedCount = missedCount
+        _alarmStateFlow.value = AlarmUiState(
+            isActive = true,
+            callerName = resolvedName,
+            callerNumber = callerNumber,
+            missedCount = missedCount
+        )
+
+        // Immediately display the System Overlay Window if SYSTEM_ALERT_WINDOW is granted
+        SosAlarmOverlayManager.show(
+            context = context,
+            callerName = resolvedName,
+            callerNumber = callerNumber,
+            missedCount = missedCount
+        )
 
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
@@ -144,7 +170,7 @@ object SosAlarmManager {
             // Ignore volume set failures
         }
 
-        // 2. Request audio focus with ducking allowed so incoming phone calls are NEVER blocked or reported busy
+        // 2. Request audio focus with ducking allowed so incoming phone calls are NEVER blocked
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val playbackAttributes = AudioAttributes.Builder()
@@ -155,7 +181,6 @@ object SosAlarmManager {
                     .setAudioAttributes(playbackAttributes)
                     .setAcceptsDelayedFocusGain(true)
                     .setOnAudioFocusChangeListener { focusChange ->
-                        // If an incoming call arrives or focus is lost, safely yield
                         if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT || focusChange == AudioManager.AUDIOFOCUS_LOSS) {
                             try {
                                 mediaPlayer?.setVolume(0.1f, 0.1f)
@@ -311,7 +336,6 @@ object SosAlarmManager {
                 var step = 0
 
                 while (isActive) {
-                    // Sweeping siren between 1200 Hz and 2600 Hz (peak human ear sensitivity)
                     val freq = 1200.0 + (1400.0 * ((step % 20) / 20.0))
                     val phaseInc = (2.0 * PI * freq) / sampleRate
 
@@ -350,15 +374,10 @@ object SosAlarmManager {
                     }
                     delay(150)
                 }
-                // Turn off torch when job is cancelled
                 try {
                     cameraManager.setTorchMode(cameraId, false)
-                } catch (_: Exception) {
-                    // Ignore
-                }
-            } catch (_: Exception) {
-                // Ignore camera flash failure
-            }
+                } catch (_: Exception) {}
+            } catch (_: Exception) {}
         }
     }
 
@@ -367,6 +386,15 @@ object SosAlarmManager {
         strobeJob?.cancel()
         strobeJob = null
 
+        // Dismiss system overlay window if showing
+        SosAlarmOverlayManager.dismiss()
+
+        // Cancel alarm notification
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(NOTIFICATION_ID_ALARM)
+        } catch (_: Exception) {}
+
         // Turn off torch
         try {
             val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
@@ -374,17 +402,13 @@ object SosAlarmManager {
             if (cameraId != null) {
                 cameraManager.setTorchMode(cameraId, false)
             }
-        } catch (_: Exception) {
-            // Ignore
-        }
+        } catch (_: Exception) {}
 
         // Stop vibration
         try {
             vibrator?.cancel()
             vibrator = null
-        } catch (_: Exception) {
-            // Ignore
-        }
+        } catch (_: Exception) {}
 
         // Release wake lock
         try {
@@ -392,9 +416,7 @@ object SosAlarmManager {
                 wakeLock?.release()
             }
             wakeLock = null
-        } catch (_: Exception) {
-            // Ignore
-        }
+        } catch (_: Exception) {}
 
         // Abandon audio focus and restore volumes
         try {
@@ -414,13 +436,13 @@ object SosAlarmManager {
                 audioManager.setStreamVolume(AudioManager.STREAM_RING, previousRingVolume, 0)
                 previousRingVolume = -1
             }
-        } catch (_: Exception) {
-            // Ignore
-        }
+        } catch (_: Exception) {}
+
         isAlarmActive = false
         activeCallerName = null
         activeCallerNumber = ""
         activeMissedCount = 0
+        _alarmStateFlow.value = AlarmUiState(isActive = false)
     }
 
     private fun stopAudio() {
@@ -430,15 +452,12 @@ object SosAlarmManager {
             audioTrack?.stop()
             audioTrack?.release()
             audioTrack = null
-        } catch (_: Exception) {
-            // Ignore
-        }
+        } catch (_: Exception) {}
 
         try {
             mediaPlayer?.stop()
             mediaPlayer?.release()
         } catch (_: Exception) {
-            // Ignore
         } finally {
             mediaPlayer = null
         }
@@ -450,30 +469,29 @@ object SosAlarmManager {
         callerNumber: String,
         missedCount: Int
     ): Notification {
+        createNotificationChannels(context)
         val title = context.getString(R.string.alarm_title)
-        val displayName = callerName ?: callerNumber
+        val displayName = callerName?.takeIf { it.isNotBlank() } ?: callerNumber
         val content = context.getString(R.string.alarm_caller_count, "$missedCount ($displayName)")
 
         val fullScreenIntent = Intent(context, SosAlarmActivity::class.java).apply {
             setAction("com.example.action.SHOW_SOS_ALARM")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                    Intent.FLAG_ACTIVITY_NO_USER_ACTION
             putExtra(SosAlarmActivity.EXTRA_CALLER_NAME, displayName)
             putExtra(SosAlarmActivity.EXTRA_CALLER_NUMBER, callerNumber)
             putExtra(SosAlarmActivity.EXTRA_MISSED_COUNT, missedCount)
         }
 
-        // On Android 14+ (API 34+), explicit background activity start options are mandatory
-        val optionsBundle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        val creatorOptionsBundle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             try {
                 android.app.ActivityOptions.makeBasic().apply {
-                    setPendingIntentBackgroundActivityStartMode(
+                    setPendingIntentCreatorBackgroundActivityStartMode(
                         android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
                     )
                 }.toBundle()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null
             }
         } else {
@@ -485,7 +503,7 @@ object SosAlarmManager {
             1001,
             fullScreenIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            optionsBundle
+            creatorOptionsBundle
         )
 
         val stopIntent = Intent(context, com.example.service.SosAlarmService::class.java).apply {
@@ -507,8 +525,8 @@ object SosAlarmManager {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
-            .addAction(R.drawable.ic_launcher_foreground, "🛑 STOP ALARM", stopPendingIntent)
-            .addAction(R.drawable.ic_launcher_foreground, "🔴 OPEN SCREEN", fullScreenPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "STOP ALARM", stopPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "OPEN SCREEN", fullScreenPendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
             .build()
