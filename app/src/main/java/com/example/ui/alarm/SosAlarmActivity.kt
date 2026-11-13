@@ -18,7 +18,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.example.MissedCallSosApp
 import com.example.alarm.SosAlarmManager
-import com.example.alarm.SosAlarmOverlayManager
 import com.example.service.SosAlarmService
 import com.example.ui.theme.GlassTheme
 import com.example.ui.theme.GlassTier
@@ -26,28 +25,23 @@ import com.example.ui.theme.GlassTier
 class SosAlarmActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Show directly over the lockscreen and turn the display on WITHOUT triggering the PIN/Pattern bouncer
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-            keyguardManager?.requestDismissKeyguard(this, null)
         }
         @Suppress("DEPRECATION")
         window.addFlags(
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
         )
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val params = window.attributes
         params.screenBrightness = 1.0f
         window.attributes = params
-
-        // Since SosAlarmActivity is now visibly on screen, dismiss the duplicate system overlay if present
-        SosAlarmOverlayManager.dismiss()
 
         val initialName = intent?.getStringExtra(EXTRA_CALLER_NAME)
             ?: SosAlarmManager.activeCallerName
@@ -62,8 +56,45 @@ class SosAlarmActivity : ComponentActivity() {
         val pinRequired = preferences.isPinRequired()
         val correctPin = preferences.getAlarmPin()
 
+        // Ensure screen wake lock and alarm sound are active now that SosAlarmActivity is in foreground (PROCESS_STATE_TOP)
+        SosAlarmManager.wakeUpScreen(this)
+        SosAlarmManager.startSosAlarm(
+            context = this,
+            callerName = initialName,
+            callerNumber = initialNumber,
+            missedCount = initialCount,
+            tone = preferences.getAlarmTone(),
+            enableFlashlight = preferences.isFlashlightEnabled(),
+            enableVibration = preferences.isVibrationEnabled(),
+            wakeScreenImmediately = true
+        )
+        try {
+            val serviceIntent = Intent(this, SosAlarmService::class.java).apply {
+                action = SosAlarmService.ACTION_START_ALARM
+                putExtra(SosAlarmService.EXTRA_CALLER_NAME, initialName)
+                putExtra(SosAlarmService.EXTRA_CALLER_NUMBER, initialNumber)
+                putExtra(SosAlarmService.EXTRA_MISSED_COUNT, initialCount)
+                putExtra(SosAlarmService.EXTRA_TONE, preferences.getAlarmTone())
+                putExtra(SosAlarmService.EXTRA_MAX_DURATION, preferences.getMaxAlarmDurationMinutes())
+                putExtra(SosAlarmService.EXTRA_FLASHLIGHT, preferences.isFlashlightEnabled())
+                putExtra(SosAlarmService.EXTRA_VIBRATION, preferences.isVibrationEnabled())
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } catch (_: Exception) {}
+
         setContent {
             val alarmState by SosAlarmManager.alarmStateFlow.collectAsState()
+
+            // Automatically close SosAlarmActivity if alarm was stopped via Overlay or Notification
+            LaunchedEffect(alarmState.isActive) {
+                if (!alarmState.isActive && !SosAlarmManager.isAlarmActive) {
+                    finishAndRemoveTask()
+                }
+            }
 
             val displayCallerName = if (alarmState.callerName.isNotBlank()) alarmState.callerName else initialName
             val displayCallerNumber = if (alarmState.callerNumber.isNotBlank()) alarmState.callerNumber else initialNumber
@@ -86,6 +117,10 @@ class SosAlarmActivity : ComponentActivity() {
                     },
                     onCallBack = {
                         SosAlarmService.stop(this@SosAlarmActivity)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                            km?.requestDismissKeyguard(this@SosAlarmActivity, null)
+                        }
                         try {
                             val callIntent = Intent(Intent.ACTION_DIAL).apply {
                                 data = Uri.parse("tel:$displayCallerNumber")
@@ -112,28 +147,27 @@ class SosAlarmActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
         )
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        SosAlarmOverlayManager.dismiss()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         }
+        SosAlarmManager.wakeUpScreen(this)
     }
 
     override fun onResume() {
         super.onResume()
-        SosAlarmOverlayManager.dismiss()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         }
+        SosAlarmManager.wakeUpScreen(this)
     }
 
     companion object {

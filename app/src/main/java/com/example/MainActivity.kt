@@ -49,6 +49,15 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+        @Suppress("DEPRECATION")
+        window.addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        )
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
@@ -58,6 +67,7 @@ class MainActivity : ComponentActivity() {
 
         if (preferences.isOnboardingCompleted() && preferences.isProtectionActive()) {
             com.example.service.CallDetectionService.start(this)
+            com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(this)
         }
 
         setContent {
@@ -92,14 +102,6 @@ class MainActivity : ComponentActivity() {
             var isAboutMode by remember { mutableStateOf(false) }
             var isLicensesMode by remember { mutableStateOf(false) }
 
-            // If alarm becomes active while MainActivity is visible, dismiss system overlay so
-            // MainActivity's full-screen SosAlarmContent renders cleanly without double-layering
-            LaunchedEffect(alarmState.isActive) {
-                if (alarmState.isActive) {
-                    SosAlarmOverlayManager.dismiss()
-                }
-            }
-
             GlassTheme(
                 tierOverride = tier,
                 reduceTransparency = reduceTransparency,
@@ -112,10 +114,46 @@ class MainActivity : ComponentActivity() {
                             onComplete = {
                                 preferences.setOnboardingCompleted(true)
                                 isOnboardingCompleted = true
+                                if (preferences.isProtectionActive()) {
+                                    com.example.service.CallDetectionService.start(this@MainActivity)
+                                    com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(this@MainActivity)
+                                }
                             },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
+                        val corePermissions = remember {
+                            buildList {
+                                add(android.Manifest.permission.READ_PHONE_STATE)
+                                add(android.Manifest.permission.READ_CALL_LOG)
+                                add(android.Manifest.permission.READ_CONTACTS)
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                    add(android.Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            }.toTypedArray()
+                        }
+
+                        val corePermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                            contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+                        ) {
+                            if (preferences.isProtectionActive()) {
+                                com.example.service.CallDetectionService.start(this@MainActivity)
+                                com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(this@MainActivity)
+                            }
+                        }
+
+                        LaunchedEffect(Unit) {
+                            val missingCore = corePermissions.any { perm ->
+                                androidx.core.content.ContextCompat.checkSelfPermission(
+                                    this@MainActivity,
+                                    perm
+                                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                            }
+                            if (missingCore) {
+                                corePermissionLauncher.launch(corePermissions)
+                            }
+                        }
+
                         BackHandler(enabled = !alarmState.isActive && (isLicensesMode || isAboutMode || isTestingMode || currentTab != NavigationTab.HOME)) {
                             when {
                                 isLicensesMode -> isLicensesMode = false
@@ -142,7 +180,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 text = {
                                     Text(
-                                        text = "To pop up the emergency red alarm screen over your locked screen and active apps, please allow 'Display Over Other Apps' (Appear on top).\n\n(Xiaomi / Realme / Oppo users: also enable 'Show on lock screen').",
+                                        text = "To pop up the emergency red alarm screen over your locked screen and active apps, please allow 'Display Over Other Apps' (Appear on top).",
                                         color = Color.White.copy(alpha = 0.9f)
                                     )
                                 },
@@ -150,32 +188,17 @@ class MainActivity : ComponentActivity() {
                                     GlassButton(
                                         onClick = {
                                             showOverlayPrompt = false
-                                            val manufacturer = android.os.Build.MANUFACTURER.uppercase()
-                                            var handled = false
-                                            if (manufacturer.contains("XIAOMI") || manufacturer.contains("REDMI") || manufacturer.contains("POCO")) {
-                                                try {
-                                                    val miuiIntent = Intent("miui.intent.action.APP_PERM_EDITOR").apply {
-                                                        setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
-                                                        putExtra("extra_pkgname", packageName)
-                                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                    }
-                                                    startActivity(miuiIntent)
-                                                    handled = true
-                                                } catch (_: Exception) {}
+                                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                                data = Uri.parse("package:$packageName")
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                             }
-                                            if (!handled) {
-                                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                            try {
+                                                startActivity(intent)
+                                            } catch (_: Exception) {
+                                                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                                     data = Uri.parse("package:$packageName")
                                                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                }
-                                                try {
-                                                    startActivity(intent)
-                                                } catch (_: Exception) {
-                                                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                        data = Uri.parse("package:$packageName")
-                                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                    })
-                                                }
+                                                })
                                             }
                                         },
                                         variant = GlassButtonVariant.PRIMARY
@@ -315,12 +338,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (SosAlarmManager.isAlarmActive) {
-            SosAlarmOverlayManager.dismiss()
-        }
         val app = application as MissedCallSosApp
         if (app.preferences.isOnboardingCompleted() && app.preferences.isProtectionActive()) {
             com.example.service.CallDetectionService.start(this)
+            com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(this)
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 com.example.telephony.CallLogReconciler.reconcileMissedCalls(this@MainActivity, app.repository)
             }

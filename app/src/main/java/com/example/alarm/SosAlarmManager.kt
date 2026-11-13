@@ -45,7 +45,7 @@ data class AlarmUiState(
 )
 
 object SosAlarmManager {
-    const val CHANNEL_ID_ALARM = "sos_emergency_alarm_v8"
+    const val CHANNEL_ID_ALARM = "sos_emergency_alarm_v9"
     const val CHANNEL_ID_PROTECTION = "sos_protection_channel"
     const val NOTIFICATION_ID_ALARM = 9001
     const val NOTIFICATION_ID_PROTECTION = 9002
@@ -53,7 +53,8 @@ object SosAlarmManager {
     private var mediaPlayer: MediaPlayer? = null
     private var audioTrack: AudioTrack? = null
     private var sirenJob: Job? = null
-    private var wakeLock: PowerManager.WakeLock? = null
+    private var cpuWakeLock: PowerManager.WakeLock? = null
+    private var screenWakeLock: PowerManager.WakeLock? = null
     private var vibrator: Vibrator? = null
     private var previousAlarmVolume: Int = -1
     private var previousMusicVolume: Int = -1
@@ -79,6 +80,10 @@ object SosAlarmManager {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             try {
+                // Remove any legacy persistent protection notification and old channels
+                nm.cancel(NOTIFICATION_ID_PROTECTION)
+                nm.deleteNotificationChannel(CHANNEL_ID_PROTECTION)
+                nm.deleteNotificationChannel("sos_emergency_alarm_v8")
                 nm.deleteNotificationChannel("sos_emergency_alarm_v7")
                 nm.deleteNotificationChannel("sos_loud_alarm_channel_v4")
                 nm.deleteNotificationChannel("sos_loud_alarm_channel_v3")
@@ -102,18 +107,51 @@ object SosAlarmManager {
                 setSound(null, null)
             }
             nm.createNotificationChannel(alarmChannel)
-
-            // Low-priority persistent background protection channel
-            val protectionChannel = NotificationChannel(
-                CHANNEL_ID_PROTECTION,
-                "Protection Status",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Monitors repeated emergency calls in background"
-                setShowBadge(false)
-            }
-            nm.createNotificationChannel(protectionChannel)
         }
+    }
+
+    /**
+     * Acquires PARTIAL_WAKE_LOCK so CPU, AudioTrack, MediaPlayer, Vibrator, and Flashlight
+     * stay running at 100% speed even when the screen is off and app is not in Recents,
+     * WITHOUT prematurely setting PowerManager.isInteractive = true before fullScreenIntent fires.
+     */
+    fun acquireCpuWakeLock(context: Context) {
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (cpuWakeLock?.isHeld != true) {
+                cpuWakeLock = pm.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "MissedCallSOS:AlarmCpuWakeLock"
+                ).apply {
+                    setReferenceCounted(false)
+                    acquire(10 * 60 * 1000L) // 10 min max timeout
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Physically turns the display ON and wakes the screen over the lockscreen.
+     * Call this AFTER posting the fullScreenIntent notification so Android's NotificationManagerService
+     * sees the screen as non-interactive when launching SosAlarmActivity.
+     */
+    fun wakeUpScreen(context: Context) {
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (screenWakeLock?.isHeld == true) {
+                try { screenWakeLock?.release() } catch (_: Exception) {}
+            }
+            @Suppress("DEPRECATION")
+            screenWakeLock = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                        PowerManager.ON_AFTER_RELEASE,
+                "MissedCallSOS:AlarmScreenWakeLock"
+            ).apply {
+                setReferenceCounted(false)
+                acquire(10 * 60 * 1000L)
+            }
+        } catch (_: Exception) {}
     }
 
     fun startSosAlarm(
@@ -123,9 +161,12 @@ object SosAlarmManager {
         missedCount: Int,
         tone: String = "system_alarm",
         enableFlashlight: Boolean = true,
-        enableVibration: Boolean = true
+        enableVibration: Boolean = true,
+        wakeScreenImmediately: Boolean = false
     ) {
+        val appContext = context.applicationContext
         val resolvedName = callerName?.takeIf { it.isNotBlank() } ?: callerNumber
+        val alreadyPlaying = isAlarmActive && (mediaPlayer?.isPlaying == true || sirenJob?.isActive == true)
         isAlarmActive = true
         activeCallerName = resolvedName
         activeCallerNumber = callerNumber
@@ -137,15 +178,25 @@ object SosAlarmManager {
             missedCount = missedCount
         )
 
-        // Immediately display the System Overlay Window if SYSTEM_ALERT_WINDOW is granted
+        // Always hold CPU wake lock immediately so background audio never pauses
+        acquireCpuWakeLock(appContext)
+        if (wakeScreenImmediately) {
+            wakeUpScreen(appContext)
+        }
+
+        // Show the System Overlay Window if SYSTEM_ALERT_WINDOW is granted
         SosAlarmOverlayManager.show(
-            context = context,
+            context = appContext,
             callerName = resolvedName,
             callerNumber = callerNumber,
             missedCount = missedCount
         )
 
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (alreadyPlaying) {
+            return
+        }
+
+        val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         // 1. Force maximum volume across ALARM, MUSIC, and RING streams for extreme loudness
         try {
@@ -202,25 +253,7 @@ object SosAlarmManager {
             // Ignore audio focus error
         }
 
-        // 3. Wake lock with ACQUIRE_CAUSES_WAKEUP to physically turn screen on when device is asleep
-        try {
-            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-            if (wakeLock?.isHeld == true) {
-                try { wakeLock?.release() } catch (_: Exception) {}
-            }
-            @Suppress("DEPRECATION")
-            wakeLock = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
-                "MissedCallSOS:AlarmScreenWakeLock"
-            ).apply {
-                setReferenceCounted(false)
-                acquire(10 * 60 * 1000L) // 10 min max timeout
-            }
-        } catch (_: Exception) {
-            // Ignore wake lock failure
-        }
-
-        // 4. Play dual sound: MediaPlayer system alarm + High-pitch AudioTrack Emergency Siren
+        // 3. Play dual sound: MediaPlayer system alarm + High-pitch AudioTrack Emergency Siren
         stopAudio()
         try {
             val alarmUri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
@@ -228,7 +261,7 @@ object SosAlarmManager {
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
             mediaPlayer = MediaPlayer().apply {
-                setDataSource(context, alarmUri)
+                setDataSource(appContext, alarmUri)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -243,7 +276,7 @@ object SosAlarmManager {
         } catch (_: Exception) {
             try {
                 mediaPlayer?.release()
-                mediaPlayer = MediaPlayer.create(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
+                mediaPlayer = MediaPlayer.create(appContext, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
                     setVolume(1.0f, 1.0f)
                     isLooping = true
                     start()
@@ -253,23 +286,28 @@ object SosAlarmManager {
             }
         }
 
-        // 5. Start synthesized high-urgency siren via AudioTrack at maximum physical SPL
+        // 4. Start synthesized high-urgency siren via AudioTrack at maximum physical SPL
         startExtremeAudioSiren()
 
-        // 6. Vibration pattern
+        // 5. Vibration pattern
         if (enableVibration) {
             try {
                 vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                    val vm = appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                     vm?.defaultVibrator
                 } else {
                     @Suppress("DEPRECATION")
-                    context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                    appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                 }
 
                 val pattern = longArrayOf(0, 600, 200, 600, 200, 800)
+                val vibAttrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0), vibAttrs)
                 } else {
                     @Suppress("DEPRECATION")
                     vibrator?.vibrate(pattern, 0)
@@ -279,9 +317,9 @@ object SosAlarmManager {
             }
         }
 
-        // 7. Flashlight strobe
+        // 6. Flashlight strobe
         if (enableFlashlight) {
-            startFlashlightStrobe(context)
+            startFlashlightStrobe(appContext)
         }
     }
 
@@ -389,10 +427,11 @@ object SosAlarmManager {
         // Dismiss system overlay window if showing
         SosAlarmOverlayManager.dismiss()
 
-        // Cancel alarm notification
+        // Cancel alarm and any legacy protection notifications
         try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             nm?.cancel(NOTIFICATION_ID_ALARM)
+            nm?.cancel(NOTIFICATION_ID_PROTECTION)
         } catch (_: Exception) {}
 
         // Turn off torch
@@ -410,12 +449,19 @@ object SosAlarmManager {
             vibrator = null
         } catch (_: Exception) {}
 
-        // Release wake lock
+        // Release wake locks
         try {
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
+            if (cpuWakeLock?.isHeld == true) {
+                cpuWakeLock?.release()
             }
-            wakeLock = null
+            cpuWakeLock = null
+        } catch (_: Exception) {}
+
+        try {
+            if (screenWakeLock?.isHeld == true) {
+                screenWakeLock?.release()
+            }
+            screenWakeLock = null
         } catch (_: Exception) {}
 
         // Abandon audio focus and restore volumes
@@ -477,7 +523,6 @@ object SosAlarmManager {
         val fullScreenIntent = Intent(context, SosAlarmActivity::class.java).apply {
             setAction("com.example.action.SHOW_SOS_ALARM")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TASK or
                     Intent.FLAG_ACTIVITY_NO_USER_ACTION
             putExtra(SosAlarmActivity.EXTRA_CALLER_NAME, displayName)
             putExtra(SosAlarmActivity.EXTRA_CALLER_NUMBER, callerNumber)
@@ -521,7 +566,7 @@ object SosAlarmManager {
             .setContentTitle(title)
             .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)

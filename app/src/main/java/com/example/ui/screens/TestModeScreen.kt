@@ -186,30 +186,13 @@ fun TestModeScreen(
                         val previewNum = testNumber.ifBlank {
                             allRules.firstOrNull()?.rawNumber ?: "Emergency Alert"
                         }
-                        val intent = Intent(context, SosAlarmService::class.java).apply {
-                            action = SosAlarmService.ACTION_START_ALARM
-                            putExtra(SosAlarmService.EXTRA_CALLER_NAME, previewName)
-                            putExtra(SosAlarmService.EXTRA_CALLER_NUMBER, previewNum)
-                            putExtra(SosAlarmService.EXTRA_MISSED_COUNT, callsToSimulate)
-                            putExtra(SosAlarmService.EXTRA_TONE, repository.preferences.getAlarmTone())
-                            putExtra(SosAlarmService.EXTRA_MAX_DURATION, repository.preferences.getMaxAlarmDurationMinutes())
-                            putExtra(SosAlarmService.EXTRA_FLASHLIGHT, repository.preferences.isFlashlightEnabled())
-                            putExtra(SosAlarmService.EXTRA_VIBRATION, repository.preferences.isVibrationEnabled())
-                        }
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                context.startForegroundService(intent)
-                            } else {
-                                context.startService(intent)
-                            }
-                        } catch (_: Exception) {
-                            com.example.alarm.SosAlarmManager.startSosAlarm(
-                                context = context,
-                                callerName = previewName,
-                                callerNumber = previewNum,
-                                missedCount = callsToSimulate
-                            )
-                        }
+                        CallStateTracker.startAlarmService(
+                            context = context,
+                            displayName = previewName,
+                            number = previewNum,
+                            missedCount = callsToSimulate,
+                            repository = repository
+                        )
                     },
                     variant = GlassButtonVariant.DESTRUCTIVE,
                     modifier = Modifier.fillMaxWidth()

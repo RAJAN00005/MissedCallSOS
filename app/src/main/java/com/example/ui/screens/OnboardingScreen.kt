@@ -38,8 +38,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -142,10 +144,62 @@ fun OnboardingScreen(
         checkAll()
     }
 
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                checkAll()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    var pendingCompleteAfterPermission by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+
+    val callScreeningRoleLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        checkAll()
+        CallDetectionService.start(context)
+        com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
+        if (pendingCompleteAfterPermission) {
+            pendingCompleteAfterPermission = false
+            onComplete()
+        }
+    }
+
     val multiplePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
         checkAll()
+        CallDetectionService.start(context)
+        com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
+
+        var launchedRolePrompt = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+                if (roleManager != null &&
+                    roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING) &&
+                    !roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING)
+                ) {
+                    callScreeningRoleLauncher.launch(
+                        roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING)
+                    )
+                    launchedRolePrompt = true
+                }
+            } catch (_: Exception) {}
+        }
+
+        if (!launchedRolePrompt && pendingCompleteAfterPermission) {
+            pendingCompleteAfterPermission = false
+            onComplete()
+        }
     }
 
     val grantedCount = steps.count { permissionStatus[it.id] == true }
@@ -300,30 +354,15 @@ fun OnboardingScreen(
                                                 multiplePermissionLauncher.launch(corePermissionsList)
                                             }
                                             "display_overlay" -> {
-                                                val manufacturer = Build.MANUFACTURER.uppercase()
-                                                var handled = false
-                                                if (manufacturer.contains("XIAOMI") || manufacturer.contains("REDMI") || manufacturer.contains("POCO")) {
-                                                    try {
-                                                        val miuiIntent = Intent("miui.intent.action.APP_PERM_EDITOR").apply {
-                                                            setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
-                                                            putExtra("extra_pkgname", context.packageName)
-                                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                        }
-                                                        context.startActivity(miuiIntent)
-                                                        handled = true
-                                                    } catch (_: Exception) {}
+                                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                                    data = Uri.parse("package:${context.packageName}")
                                                 }
-                                                if (!handled) {
-                                                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                                try {
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {
+                                                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                                         data = Uri.parse("package:${context.packageName}")
-                                                    }
-                                                    try {
-                                                        context.startActivity(intent)
-                                                    } catch (_: Exception) {
-                                                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                            data = Uri.parse("package:${context.packageName}")
-                                                        })
-                                                    }
+                                                    })
                                                 }
                                             }
                                             "dnd" -> {
@@ -363,8 +402,13 @@ fun OnboardingScreen(
             // Continue button
             GlassButton(
                 onClick = {
-                    CallDetectionService.start(context)
-                    onComplete()
+                    if (permissionStatus["core_telephony"] != true) {
+                        pendingCompleteAfterPermission = true
+                        multiplePermissionLauncher.launch(corePermissionsList)
+                    } else {
+                        CallDetectionService.start(context)
+                        onComplete()
+                    }
                 },
                 variant = GlassButtonVariant.PRIMARY,
                 shape = RoundedCornerShape(16.dp),

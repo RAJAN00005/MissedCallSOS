@@ -27,6 +27,7 @@ class MissedCallSosApp : Application() {
 
         if (preferences.isOnboardingCompleted() && preferences.isProtectionActive()) {
             CallDetectionService.start(this)
+            com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(this)
         }
 
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {

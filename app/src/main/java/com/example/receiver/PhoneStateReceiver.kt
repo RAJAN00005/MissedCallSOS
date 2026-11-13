@@ -1,9 +1,12 @@
 package com.example.receiver
 
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.telephony.TelephonyManager
+import com.example.alarm.SosAlarmManager
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferences
 import com.example.data.repository.SosRepository
@@ -28,28 +31,27 @@ class PhoneStateReceiver : BroadcastReceiver() {
             val pendingResult = goAsync()
             val appContext = context.applicationContext
 
-            val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            // Ensure no legacy persistent protection notification is shown
+            try {
+                val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                nm?.cancel(SosAlarmManager.NOTIFICATION_ID_PROTECTION)
+            } catch (_: Exception) {}
+
+            val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
             val wakeLock = powerManager?.newWakeLock(
-                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                PowerManager.PARTIAL_WAKE_LOCK,
                 "MissedCallSOS:PhoneStateReceiverWakeLock"
             )?.apply {
                 setReferenceCounted(false)
-                acquire(15_000L) // 15 seconds max timeout
+                acquire(20_000L) // 20 seconds max timeout
             }
 
             val preferences = AppPreferences(appContext)
-            if (preferences.isOnboardingCompleted() && preferences.isProtectionActive()) {
-                try {
-                    com.example.service.CallDetectionService.start(appContext)
-                } catch (e: Exception) {
-                    android.util.Log.e("PhoneStateReceiver", "Failed to ensure CallDetectionService: ${e.message}")
-                }
-            }
-
+            com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(appContext)
             val database = AppDatabase.getDatabase(appContext)
             val repository = SosRepository(database, preferences)
 
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            CoroutineScope(Dispatchers.IO).launch {
                 try {
                     CallStateTracker.handlePhoneStateBroadcast(
                         context = appContext,

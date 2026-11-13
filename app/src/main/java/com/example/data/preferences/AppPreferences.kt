@@ -138,22 +138,22 @@ class AppPreferences(context: Context) {
 
     fun getLastCallLogCheckTimestamp(): Long = prefs.getLong(KEY_LAST_CALLLOG_CHECK, 0L)
     fun setLastCallLogCheckTimestamp(ts: Long) {
-        prefs.edit().putLong(KEY_LAST_CALLLOG_CHECK, ts).apply()
+        prefs.edit().putLong(KEY_LAST_CALLLOG_CHECK, ts).commit()
     }
 
     fun getLastRingingTimestamp(): Long = prefs.getLong(KEY_LAST_RINGING_TIME, 0L)
     fun setLastRingingTimestamp(ts: Long) {
-        prefs.edit().putLong(KEY_LAST_RINGING_TIME, ts).apply()
+        prefs.edit().putLong(KEY_LAST_RINGING_TIME, ts).commit()
     }
 
     fun getLastRingingNumber(): String? = prefs.getString(KEY_LAST_RINGING_NUMBER, null)
     fun setLastRingingNumber(num: String?) {
-        prefs.edit().putString(KEY_LAST_RINGING_NUMBER, num).apply()
+        prefs.edit().putString(KEY_LAST_RINGING_NUMBER, num).commit()
     }
 
     fun getLastOffhookTimestamp(): Long = prefs.getLong(KEY_LAST_OFFHOOK_TIME, 0L)
     fun setLastOffhookTimestamp(ts: Long) {
-        prefs.edit().putLong(KEY_LAST_OFFHOOK_TIME, ts).apply()
+        prefs.edit().putLong(KEY_LAST_OFFHOOK_TIME, ts).commit()
     }
 
     companion object {

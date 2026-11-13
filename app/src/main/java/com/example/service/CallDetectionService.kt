@@ -1,10 +1,13 @@
 package com.example.service
 
-import android.app.Notification
-import android.app.PendingIntent
+import android.Manifest
+import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
@@ -15,15 +18,7 @@ import android.provider.CallLog
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import android.content.BroadcastReceiver
-import android.content.IntentFilter
-import android.os.PowerManager
-import com.example.MainActivity
-import com.example.R
 import com.example.alarm.SosAlarmManager
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferences
@@ -35,9 +30,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/**
+ * Lightweight, zero-notification, event-driven call observer service.
+ * Does NOT show any persistent foreground notification and does NOT run any background polling loop,
+ * ensuring 0% idle battery drain and no stuck notifications when swiped from Recents.
+ * When the app is not in Recents, the manifest PhoneStateReceiver wakes up automatically on incoming calls.
+ */
 class CallDetectionService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var telephonyManager: TelephonyManager
@@ -75,36 +75,24 @@ class CallDetectionService : Service() {
     override fun onCreate() {
         super.onCreate()
         SosAlarmManager.createNotificationChannels(this)
+        // Ensure any old persistent protection notification is removed immediately
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(SosAlarmManager.NOTIFICATION_ID_PROTECTION)
+        } catch (_: Exception) {}
+
         val database = AppDatabase.getDatabase(this)
         val preferences = AppPreferences(this)
         repository = SosRepository(database, preferences)
         telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
 
-        // Ensure last call log check timestamp is initialized to NOW on startup,
-        // so that past missed calls from before the app opened NEVER trigger alarms!
         if (preferences.getLastCallLogCheckTimestamp() == 0L) {
-            preferences.setLastCallLogCheckTimestamp(System.currentTimeMillis())
+            preferences.setLastCallLogCheckTimestamp(System.currentTimeMillis() - 5_000L)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                SosAlarmManager.NOTIFICATION_ID_PROTECTION,
-                createProtectionNotification(),
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                SosAlarmManager.NOTIFICATION_ID_PROTECTION,
-                createProtectionNotification(),
-                0
-            )
-        } else {
-            startForeground(SosAlarmManager.NOTIFICATION_ID_PROTECTION, createProtectionNotification())
-        }
         registerTelephonyListener()
         registerCallLogObserver()
 
-        // Register high-priority dynamic broadcast receiver in the foreground service (unthrottled by MIUI)
         val filter = IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED).apply {
             priority = 1000
         }
@@ -118,8 +106,18 @@ class CallDetectionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(SosAlarmManager.NOTIFICATION_ID_PROTECTION)
+        } catch (_: Exception) {}
+
         registerTelephonyListener()
         registerCallLogObserver()
+        serviceScope.launch {
+            try {
+                CallLogReconciler.reconcileMissedCalls(applicationContext, repository)
+            } catch (_: Exception) {}
+        }
         return START_STICKY
     }
 
@@ -131,7 +129,6 @@ class CallDetectionService : Service() {
 
         if (!hasPhonePermission) return
 
-        // 1. Register PhoneStateListener (supplies phoneNumber on Android 8 through 12!)
         if (phoneStateListener == null) {
             try {
                 @Suppress("DEPRECATION")
@@ -152,7 +149,6 @@ class CallDetectionService : Service() {
             } catch (_: Exception) {}
         }
 
-        // 2. On Android 12+, also register TelephonyCallback as secondary state listener
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && telephonyCallback == null) {
             val callback = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
                 override fun onCallStateChanged(state: Int) {
@@ -171,37 +167,21 @@ class CallDetectionService : Service() {
         }
     }
 
-    private fun createProtectionNotification(): Notification {
-        val launchIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        return NotificationCompat.Builder(this, SosAlarmManager.CHANNEL_ID_PROTECTION)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(getString(R.string.status_active))
-            .setContentText(getString(R.string.status_desc_active))
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setContentIntent(pendingIntent)
-            .build()
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             (telephonyCallback as? TelephonyCallback)?.let {
-                telephonyManager.unregisterTelephonyCallback(it)
+                try {
+                    telephonyManager.unregisterTelephonyCallback(it)
+                } catch (_: Exception) {}
             }
-        } else {
-            @Suppress("DEPRECATION")
-            phoneStateListener?.let {
+        }
+        @Suppress("DEPRECATION")
+        phoneStateListener?.let {
+            try {
                 telephonyManager.listen(it, PhoneStateListener.LISTEN_NONE)
-            }
+            } catch (_: Exception) {}
         }
         try {
             unregisterReceiver(dynamicCallReceiver)
@@ -231,80 +211,52 @@ class CallDetectionService : Service() {
                     super.onChange(selfChange, uri)
                     serviceScope.launch {
                         try {
-                            delay(500)
-                            val minDate = System.currentTimeMillis() - 180_000L
-                            val latest = CallLogReconciler.getLatestUnprocessedMissedCall(
-                                context = applicationContext,
-                                repository = repository,
-                                minDate = minDate
-                            )
-                            if (latest != null) {
-                                CallStateTracker.processMissedCallInternal(
-                                    context = applicationContext,
-                                    repository = repository,
-                                    rawNumber = latest.first,
-                                    timestamp = latest.second,
-                                    simSlot = -1
-                                )
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("CallDetectionService", "Error in CallLog observer: ${e.message}")
-                        }
+                            delay(350L)
+                            CallLogReconciler.reconcileMissedCalls(applicationContext, repository)
+                            delay(1000L)
+                            CallLogReconciler.reconcileMissedCalls(applicationContext, repository)
+                        } catch (_: Exception) {}
                     }
                 }
             }
             contentResolver.registerContentObserver(CallLog.Calls.CONTENT_URI, true, observer)
             callLogObserver = observer
-        } catch (_: SecurityException) {
-            // Permission not granted or revoked
-        } catch (e: Exception) {
-            android.util.Log.e("CallDetectionService", "Failed to register CallLog observer: ${e.message}")
-        }
+        } catch (_: Exception) {}
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        if (::repository.isInitialized && repository.preferences.isProtectionActive()) {
-            val restartIntent = Intent(applicationContext, CallDetectionService::class.java)
-            val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                PendingIntent.getForegroundService(
-                    applicationContext,
-                    1002,
-                    restartIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-            } else {
-                PendingIntent.getService(
-                    applicationContext,
-                    1002,
-                    restartIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-            }
-            val alarmManager = getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
-            alarmManager?.set(
-                android.app.AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + 1000L,
-                pendingIntent
-            )
-        }
+        // Ensure no notification remains when user swipes the app away from Recents
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(SosAlarmManager.NOTIFICATION_ID_PROTECTION)
+        } catch (_: Exception) {}
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
         fun start(context: Context) {
-            val intent = Intent(context, CallDetectionService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
+            try {
+                // Cancel any legacy protection notification
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                nm?.cancel(SosAlarmManager.NOTIFICATION_ID_PROTECTION)
+
+                val intent = Intent(context, CallDetectionService::class.java)
                 context.startService(intent)
+            } catch (_: Exception) {
+                // When in background on Android 8+, PhoneStateReceiver handles all calls directly with 0 battery drain
             }
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, CallDetectionService::class.java)
-            context.stopService(intent)
+            try {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                nm?.cancel(SosAlarmManager.NOTIFICATION_ID_PROTECTION)
+
+                val intent = Intent(context, CallDetectionService::class.java)
+                context.stopService(intent)
+            } catch (_: Exception) {}
         }
     }
 }

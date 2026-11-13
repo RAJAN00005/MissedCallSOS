@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,11 +93,54 @@ fun HomeScreen(
     val totalContacts by repository.allRulesFlow.collectAsState(initial = emptyList())
     val latestTrigger by repository.latestTriggerFlow.collectAsState(initial = null)
 
-    // Check permissions for health warning banner
-    val hasPhone = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-    val hasCallLog = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
-    val hasDnd = (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).isNotificationPolicyAccessGranted
-    val hasOverlay = Settings.canDrawOverlays(context)
+    // Check permissions for health warning banner (refreshed on ON_RESUME)
+    var hasPhone by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    var hasCallLog by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    var hasDnd by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).isNotificationPolicyAccessGranted
+        )
+    }
+    var hasOverlay by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(Settings.canDrawOverlays(context))
+    }
+
+    fun refreshPermissions() {
+        hasPhone = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+        hasCallLog = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+        hasDnd = (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).isNotificationPolicyAccessGranted
+        hasOverlay = Settings.canDrawOverlays(context)
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                refreshPermissions()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val homePermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        refreshPermissions()
+        CallDetectionService.start(context)
+        com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
+    }
+
     val isMissingPermissions = !hasPhone || !hasCallLog || !hasDnd || !hasOverlay
 
     val visualStatus = when {
@@ -289,13 +333,31 @@ fun HomeScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Grant Overlay & DND permissions for lockscreen alarm popup.",
+                            text = if (!hasPhone || !hasCallLog) {
+                                "Allow Call & Call Log permissions to detect emergency missed calls."
+                            } else {
+                                "Grant Overlay & DND permissions for lockscreen alarm popup."
+                            },
                             color = Color.White.copy(alpha = 0.85f),
                             fontSize = 12.sp
                         )
                     }
                     GlassButton(
-                        onClick = onNavigateToHealth,
+                        onClick = {
+                            if (!hasPhone || !hasCallLog) {
+                                val perms = buildList {
+                                    add(Manifest.permission.READ_PHONE_STATE)
+                                    add(Manifest.permission.READ_CALL_LOG)
+                                    add(Manifest.permission.READ_CONTACTS)
+                                    if ( android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                        add(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                }.toTypedArray()
+                                homePermissionLauncher.launch(perms)
+                            } else {
+                                onNavigateToHealth()
+                            }
+                        },
                         variant = GlassButtonVariant.SECONDARY,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.size(width = 74.dp, height = 36.dp)
@@ -360,6 +422,7 @@ fun HomeScreen(
                         .clickable {
                             repository.preferences.setProtectionPausedUntil(0L)
                             CallDetectionService.start(context)
+                            com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
                         }
                         .padding(horizontal = 20.dp, vertical = 8.dp)
                 ) {

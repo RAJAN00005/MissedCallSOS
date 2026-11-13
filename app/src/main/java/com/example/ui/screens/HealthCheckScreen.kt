@@ -96,6 +96,20 @@ fun HealthCheckScreen(
         }.toTypedArray()
     }
 
+    fun isCallScreeningActive(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return try {
+                val rm = context.getSystemService(android.app.role.RoleManager::class.java)
+                rm == null ||
+                    !rm.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING) ||
+                    rm.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING)
+            } catch (_: Exception) {
+                true
+            }
+        }
+        return true
+    }
+
     fun refreshHealth() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -110,7 +124,7 @@ fun HealthCheckScreen(
         }
 
         statusMap["core_telephony"] = hasPhone && hasCallLog && hasContacts && hasNotification
-        statusMap["service"] = repository.preferences.isProtectionActive()
+        statusMap["service"] = repository.preferences.isProtectionActive() && isCallScreeningActive()
         statusMap["dnd"] = nm.isNotificationPolicyAccessGranted
         statusMap["battery"] = pm.isIgnoringBatteryOptimizations(context.packageName)
         statusMap["display_screen"] = Settings.canDrawOverlays(context)
@@ -121,9 +135,30 @@ fun HealthCheckScreen(
         refreshHealth()
     }
 
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                refreshHealth()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val multiplePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
+        com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
+        refreshHealth()
+    }
+
+    val callScreeningRoleLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
         refreshHealth()
     }
 
@@ -133,7 +168,7 @@ fun HealthCheckScreen(
             HealthItem("display_screen", "Lockscreen Alarm Display", "Shows emergency alarm dismiss screen over lockscreen.", Icons.Default.Layers),
             HealthItem("dnd", "Silent Mode Alarm Bypass", "Allows siren to ring at full volume in Silent or DND.", Icons.Default.DoNotDisturbOn),
             HealthItem("battery", "24/7 Background Guard", "Keeps call monitoring alive when screen is off.", Icons.Default.BatteryAlert),
-            HealthItem("service", "Protection Service Active", "Monitors calls continuously in foreground.", Icons.Default.Shield),
+            HealthItem("service", "Background Call Trigger", "Wakes SOS alarm even when swiped from Recents (0% battery).", Icons.Default.Shield),
             HealthItem("oem", "OEM Auto-Start Guide", "Settings for Xiaomi, Samsung, Oppo lockscreen popups.", Icons.Default.Build)
         )
     }
@@ -322,6 +357,20 @@ fun HealthCheckScreen(
                                         "service" -> {
                                             repository.preferences.setProtectionPausedUntil(0L)
                                             CallDetectionService.start(context)
+                                            com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                                try {
+                                                    val rm = context.getSystemService(android.app.role.RoleManager::class.java)
+                                                    if (rm != null &&
+                                                        rm.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING) &&
+                                                        !rm.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING)
+                                                    ) {
+                                                        callScreeningRoleLauncher.launch(
+                                                            rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING)
+                                                        )
+                                                    }
+                                                } catch (_: Exception) {}
+                                            }
                                             refreshHealth()
                                         }
                                         "dnd" -> {
@@ -339,30 +388,15 @@ fun HealthCheckScreen(
                                             }
                                         }
                                         "display_screen" -> {
-                                            val manufacturer = Build.MANUFACTURER.uppercase()
-                                            var handled = false
-                                            if (manufacturer.contains("XIAOMI") || manufacturer.contains("REDMI") || manufacturer.contains("POCO")) {
-                                                try {
-                                                    val miuiIntent = Intent("miui.intent.action.APP_PERM_EDITOR").apply {
-                                                        setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
-                                                        putExtra("extra_pkgname", context.packageName)
-                                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                                    }
-                                                    context.startActivity(miuiIntent)
-                                                    handled = true
-                                                } catch (_: Exception) {}
+                                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                                data = Uri.parse("package:${context.packageName}")
                                             }
-                                            if (!handled) {
-                                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                            try {
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                                     data = Uri.parse("package:${context.packageName}")
-                                                }
-                                                try {
-                                                    context.startActivity(intent)
-                                                } catch (e: Exception) {
-                                                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                        data = Uri.parse("package:${context.packageName}")
-                                                    })
-                                                }
+                                                })
                                             }
                                         }
                                         else -> {

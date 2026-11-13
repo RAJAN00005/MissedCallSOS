@@ -1,6 +1,7 @@
 package com.example.alarm
 
 import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
@@ -24,11 +25,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
-import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.SeekBar
 import android.widget.TextView
 import com.example.data.preferences.AppPreferences
 import com.example.service.SosAlarmService
@@ -42,8 +41,8 @@ import kotlin.math.min
  * the full-screen animated Emergency SOS Alarm dismissal screen directly over the
  * lockscreen, incoming call screen, or any app with 0ms delay.
  *
- * Bypasses OEM (Xiaomi MIUI/HyperOS, Realme, Oppo, Vivo, Samsung) and Android 10–16
- * Background Activity Launch (BAL) restrictions whenever SYSTEM_ALERT_WINDOW is granted.
+ * Uses pure theme-independent Android Views (FrameLayout, LinearLayout, TextView, custom touch slider)
+ * so it never fails on any OEM ROM (Xiaomi MIUI/HyperOS, Realme, Oppo, Vivo, Samsung, Pixel).
  */
 object SosAlarmOverlayManager {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -65,6 +64,11 @@ object SosAlarmOverlayManager {
         mainHandler.post {
             try {
                 if (!Settings.canDrawOverlays(appContext)) {
+                    return@post
+                }
+
+                // If already showing, keep it visible rather than flickering
+                if (isShowing && overlayView != null) {
                     return@post
                 }
 
@@ -112,7 +116,6 @@ object SosAlarmOverlayManager {
                 val flags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                         WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
                         WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                        WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_FULLSCREEN
 
@@ -169,6 +172,7 @@ object SosAlarmOverlayManager {
         ).toInt()
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun buildOverlayView(
         context: Context,
         callerName: String,
@@ -426,12 +430,14 @@ object SosAlarmOverlayManager {
             }
         )
 
-        val pinConfirmBtn = Button(context).apply {
+        val pinConfirmBtn = TextView(context).apply {
             text = "UNLOCK & STOP ALARM"
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.DEFAULT_BOLD
-            isAllCaps = false
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(context, 14).toFloat()
@@ -473,13 +479,15 @@ object SosAlarmOverlayManager {
             }
         }
 
-        // 3. Call Back Button
-        val callBackBtn = Button(context).apply {
+        // 3. Call Back Button (Pure TextView so no AppCompat/Material theme is needed)
+        val callBackBtn = TextView(context).apply {
             text = "📞  CALL BACK"
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
-            isAllCaps = false
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(Color.parseColor("#2563EB"), Color.parseColor("#1D4ED8"))
@@ -501,13 +509,17 @@ object SosAlarmOverlayManager {
             }
         )
 
-        // 4. Interactive Slide-to-Stop Track
+        // 4. Interactive Slide-to-Stop Track (Pure Custom Touch Drag View — zero SeekBar theme dependency)
+        val sliderHeightPx = dp(context, 58)
+        val thumbSizePx = dp(context, 48)
+        val thumbMarginPx = dp(context, 5)
+
         val sliderFrame = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(context, 30).toFloat()
                 setColor(Color.argb(45, 255, 255, 255))
-                setStroke(dp(context, 1), Color.argb(80, 239, 68, 68))
+                setStroke(dp(context, 1), Color.argb(110, 239, 68, 68))
             }
         }
 
@@ -526,66 +538,82 @@ object SosAlarmOverlayManager {
             )
         )
 
-        val seekBar = SeekBar(context).apply {
-            max = 100
-            progress = 5
-            splitTrack = false
-            progressDrawable = GradientDrawable().apply {
-                setColor(Color.TRANSPARENT)
-            }
-            thumb = GradientDrawable().apply {
+        val thumbView = TextView(context).apply {
+            text = "✕"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setSize(dp(context, 48), dp(context, 48))
                 setColor(Color.parseColor("#EF4444"))
                 setStroke(dp(context, 2), Color.WHITE)
             }
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser && progress >= 85) {
-                        triggerStopAction()
-                    }
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {
-                    if ((sb?.progress ?: 0) < 85) {
-                        sb?.progress = 5
-                    }
-                }
-            })
         }
         sliderFrame.addView(
-            seekBar,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            ).apply {
-                leftMargin = dp(context, 6)
-                rightMargin = dp(context, 6)
+            thumbView,
+            FrameLayout.LayoutParams(thumbSizePx, thumbSizePx, Gravity.CENTER_VERTICAL or Gravity.START).apply {
+                leftMargin = thumbMarginPx
             }
         )
+
+        var downX = 0f
+        var startTransX = 0f
+        sliderFrame.setOnTouchListener { view, event ->
+            val maxDrag = (view.width - thumbSizePx - thumbMarginPx * 2).coerceAtLeast(1).toFloat()
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    startTransX = thumbView.translationX
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val delta = event.rawX - downX
+                    val newX = (startTransX + delta).coerceIn(0f, maxDrag)
+                    thumbView.translationX = newX
+                    sliderLabel.alpha = (1f - (newX / maxDrag)).coerceIn(0.15f, 1f)
+                    if (newX >= maxDrag * 0.8f) {
+                        triggerStopAction()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (thumbView.translationX >= maxDrag * 0.8f) {
+                        triggerStopAction()
+                    } else {
+                        thumbView.animate().translationX(0f).setDuration(180L).start()
+                        sliderLabel.animate().alpha(1f).setDuration(180L).start()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
 
         contentLayout.addView(
             sliderFrame,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(context, 58)
+                sliderHeightPx
             ).apply {
                 bottomMargin = dp(context, 14)
             }
         )
 
         // 5. Instant 1-Tap STOP ALARM Button
-        val stopAlarmBtn = Button(context).apply {
+        val stopAlarmBtn = TextView(context).apply {
             text = "✕  STOP ALARM"
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
-            isAllCaps = false
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(context, 16).toFloat()
                 setColor(Color.parseColor("#DC2626"))
-                setStroke(dp(context, 1), Color.argb(140, 255, 255, 255))
+                setStroke(dp(context, 1), Color.argb(160, 255, 255, 255))
             }
             setOnClickListener {
                 triggerStopAction()
@@ -595,7 +623,7 @@ object SosAlarmOverlayManager {
             stopAlarmBtn,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(context, 52)
+                dp(context, 54)
             )
         )
 

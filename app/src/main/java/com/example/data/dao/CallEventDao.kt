@@ -24,6 +24,12 @@ interface CallEventDao {
     @Query("SELECT COUNT(*) FROM call_events WHERE normalizedNumber = :normalizedNumber AND timestamp = :timestamp")
     suspend fun countEventsWithTimestamp(normalizedNumber: String, timestamp: Long): Int
 
+    @Query("SELECT COUNT(*) FROM call_events WHERE normalizedNumber = :normalizedNumber AND timestamp BETWEEN :minTimestamp AND :maxTimestamp")
+    suspend fun countEventsNearTimestamp(normalizedNumber: String, minTimestamp: Long, maxTimestamp: Long): Int
+
+    @Query("SELECT COUNT(*) FROM call_events WHERE timestamp >= :sinceTimestamp AND isTest = 0")
+    suspend fun countAnyEventsSince(sinceTimestamp: Long): Int
+
     @Query("SELECT COUNT(*) FROM call_events WHERE timestamp >= :sinceTimestamp AND isTest = 0")
     fun countCallsTodayFlow(sinceTimestamp: Long): Flow<Int>
 

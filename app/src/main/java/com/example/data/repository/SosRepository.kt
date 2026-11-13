@@ -54,8 +54,16 @@ class SosRepository(
         callEventDao.insertCallEvent(event)
     }
 
-    suspend fun hasCallEvent(normalizedNumber: String, timestamp: Long): Boolean = withContext(Dispatchers.IO) {
-        callEventDao.countEventsWithTimestamp(normalizedNumber, timestamp) > 0
+    suspend fun hasCallEvent(normalizedNumber: String, timestamp: Long, toleranceMs: Long = 3500L): Boolean = withContext(Dispatchers.IO) {
+        callEventDao.countEventsNearTimestamp(
+            normalizedNumber = normalizedNumber,
+            minTimestamp = timestamp - toleranceMs,
+            maxTimestamp = timestamp + toleranceMs
+        ) > 0
+    }
+
+    suspend fun hasAnyCallEventSince(sinceTimestamp: Long): Boolean = withContext(Dispatchers.IO) {
+        callEventDao.countAnyEventsSince(sinceTimestamp) > 0
     }
 
     suspend fun getUnhandledCallsSince(normalizedNumber: String, sinceTimestamp: Long, isTest: Boolean = false): List<CallEventEntity> =
@@ -104,6 +112,11 @@ class SosRepository(
                 rule.rawNumber.filter { it.isDigit() }.endsWith(queryLast10)
             ))
         }
+    }
+
+    suspend fun getPrimaryActiveRule(): ContactRuleEntity? = withContext(Dispatchers.IO) {
+        val allRules = contactRuleDao.getAllRulesList()
+        allRules.firstOrNull { it.isAlarmEnabled } ?: allRules.firstOrNull()
     }
 
     suspend fun saveRule(rule: ContactRuleEntity): Long = withContext(Dispatchers.IO) {
