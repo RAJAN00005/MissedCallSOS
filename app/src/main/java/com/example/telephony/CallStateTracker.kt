@@ -44,17 +44,6 @@ object CallStateTracker {
     @Volatile private var lastSimSlot: Int = -1
     @Volatile private var lastHandledRingTimestamp: Long = 0L
 
-    fun recordExternalRinging(timestamp: Long, incomingNumber: String?) {
-        wasRinging = true
-        wasOffhook = false
-        if (lastRingingTimestamp == 0L || (timestamp - lastRingingTimestamp) > 60_000L) {
-            lastRingingTimestamp = timestamp
-        }
-        if (!incomingNumber.isNullOrBlank() && incomingNumber != "UNKNOWN") {
-            lastRingingNumber = incomingNumber
-        }
-    }
-
     fun onCallStateChanged(
         context: Context,
         repository: SosRepository,

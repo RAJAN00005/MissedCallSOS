@@ -96,20 +96,6 @@ fun HealthCheckScreen(
         }.toTypedArray()
     }
 
-    fun isCallScreeningActive(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return try {
-                val rm = context.getSystemService(android.app.role.RoleManager::class.java)
-                rm == null ||
-                    !rm.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING) ||
-                    rm.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING)
-            } catch (_: Exception) {
-                true
-            }
-        }
-        return true
-    }
-
     fun refreshHealth() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -124,7 +110,7 @@ fun HealthCheckScreen(
         }
 
         statusMap["core_telephony"] = hasPhone && hasCallLog && hasContacts && hasNotification
-        statusMap["service"] = repository.preferences.isProtectionActive() && isCallScreeningActive()
+        statusMap["service"] = repository.preferences.isProtectionActive()
         statusMap["dnd"] = nm.isNotificationPolicyAccessGranted
         statusMap["battery"] = pm.isIgnoringBatteryOptimizations(context.packageName)
         statusMap["display_screen"] = Settings.canDrawOverlays(context)
@@ -155,20 +141,13 @@ fun HealthCheckScreen(
         refreshHealth()
     }
 
-    val callScreeningRoleLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) {
-        com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
-        refreshHealth()
-    }
-
     val healthList = remember {
         listOf(
             HealthItem("core_telephony", "Call & Contacts Shield", "Detects repeated calls & trusted emergency contacts.", Icons.Default.Phone),
             HealthItem("display_screen", "Lockscreen Alarm Display", "Shows emergency alarm dismiss screen over lockscreen.", Icons.Default.Layers),
             HealthItem("dnd", "Silent Mode Alarm Bypass", "Allows siren to ring at full volume in Silent or DND.", Icons.Default.DoNotDisturbOn),
             HealthItem("battery", "24/7 Background Guard", "Keeps call monitoring alive when screen is off.", Icons.Default.BatteryAlert),
-            HealthItem("service", "Background Call Trigger", "Wakes SOS alarm even when swiped from Recents (0% battery).", Icons.Default.Shield),
+            HealthItem("service", "Background Call Monitor", "Detects missed calls even when app is closed (0% battery).", Icons.Default.Shield),
             HealthItem("oem", "OEM Auto-Start Guide", "Settings for Xiaomi, Samsung, Oppo lockscreen popups.", Icons.Default.Build)
         )
     }
@@ -357,20 +336,11 @@ fun HealthCheckScreen(
                                         "service" -> {
                                             repository.preferences.setProtectionPausedUntil(0L)
                                             CallDetectionService.start(context)
-                                            com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                                try {
-                                                    val rm = context.getSystemService(android.app.role.RoleManager::class.java)
-                                                    if (rm != null &&
-                                                        rm.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING) &&
-                                                        !rm.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING)
-                                                    ) {
-                                                        callScreeningRoleLauncher.launch(
-                                                            rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING)
-                                                        )
-                                                    }
-                                                } catch (_: Exception) {}
-                                            }
+                                            com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(
+                                                context = context,
+                                                forceRescheduleJob = true,
+                                                replaceWork = true
+                                            )
                                             refreshHealth()
                                         }
                                         "dnd" -> {

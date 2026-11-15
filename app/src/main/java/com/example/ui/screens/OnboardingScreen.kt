@@ -161,42 +161,13 @@ fun OnboardingScreen(
         androidx.compose.runtime.mutableStateOf(false)
     }
 
-    val callScreeningRoleLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) {
-        checkAll()
-        CallDetectionService.start(context)
-        com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
-        if (pendingCompleteAfterPermission) {
-            pendingCompleteAfterPermission = false
-            onComplete()
-        }
-    }
-
     val multiplePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
         checkAll()
         CallDetectionService.start(context)
         com.example.telephony.BackgroundMonitorScheduler.ensureMonitoringArmed(context)
-
-        var launchedRolePrompt = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
-                if (roleManager != null &&
-                    roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING) &&
-                    !roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING)
-                ) {
-                    callScreeningRoleLauncher.launch(
-                        roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING)
-                    )
-                    launchedRolePrompt = true
-                }
-            } catch (_: Exception) {}
-        }
-
-        if (!launchedRolePrompt && pendingCompleteAfterPermission) {
+        if (pendingCompleteAfterPermission) {
             pendingCompleteAfterPermission = false
             onComplete()
         }
