@@ -27,8 +27,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
-import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Policy
@@ -52,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -281,7 +283,9 @@ fun AboutScreen(
         GlassButton(
             onClick = { showShareDialog = true },
             variant = GlassButtonVariant.PRIMARY,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("share_app_button")
         ) {
             Icon(
                 imageVector = Icons.Default.Share,
@@ -297,6 +301,9 @@ fun AboutScreen(
         }
 
         if (showShareDialog) {
+            val isDebugOrSplit = remember {
+                AppShareHelper.isSplitApk(context) || AppShareHelper.isDebuggableBuild(context)
+            }
             AlertDialog(
                 onDismissRequest = { showShareDialog = false },
                 containerColor = Color(0xFF131B33),
@@ -308,47 +315,79 @@ fun AboutScreen(
                     )
                 },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             text = "Choose how you want to share with friends and family:",
                             color = Color.White.copy(alpha = 0.85f),
                             fontSize = 13.sp
                         )
 
-                        // Option 1: Send APK file directly (WhatsApp, Telegram, Bluetooth)
+                        // Option 1: Share GitHub Release Download Link (Recommended)
+                        GlassButton(
+                            onClick = {
+                                showShareDialog = false
+                                AppShareHelper.shareDownloadLink(context)
+                            },
+                            variant = GlassButtonVariant.PRIMARY,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("share_download_link_button")
+                        ) {
+                            Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Share Download Link (Recommended)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Option 2: Send APK file directly (WhatsApp, Telegram, Nearby Share)
                         GlassButton(
                             onClick = {
                                 showShareDialog = false
                                 AppShareHelper.shareApkFile(context)
                             },
-                            variant = GlassButtonVariant.PRIMARY,
-                            modifier = Modifier.fillMaxWidth()
+                            variant = GlassButtonVariant.SECONDARY,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("share_apk_direct_button")
                         ) {
                             Icon(imageVector = Icons.Default.Android, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Send APK File Directly", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Send APK File Directly", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
 
-                        // Option 2: Share features text
+                        // Option 3: Share features text
                         GlassButton(
                             onClick = {
                                 showShareDialog = false
                                 AppShareHelper.shareAppText(context)
                             },
                             variant = GlassButtonVariant.SECONDARY,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("share_features_button")
                         ) {
                             Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Share Features & Info", fontSize = 13.sp)
                         }
+
+                        Text(
+                            text = if (isDebugOrSplit) {
+                                "Tip: For best results on WhatsApp, share the Download Link or install the GitHub Release APK first — debug/split APKs can stall on other phones."
+                            } else {
+                                "Tip: If APK installation stalls on \"Installing...\", share the Download Link or allow \"Install unknown apps\" for WhatsApp in Settings."
+                            },
+                            color = Color.White.copy(alpha = 0.65f),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
                     }
                 },
                 confirmButton = {},
                 dismissButton = {
                     GlassButton(
                         onClick = { showShareDialog = false },
-                        variant = GlassButtonVariant.SECONDARY
+                        variant = GlassButtonVariant.SECONDARY,
+                        modifier = Modifier.testTag("share_cancel_button")
                     ) {
                         Text("Cancel")
                     }
