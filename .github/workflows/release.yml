@@ -42,13 +42,26 @@ jobs:
             cp .env.example .env
           fi
 
-          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkeypair -noprompt \
+                -keystore debug.keystore \
+                -storetype PKCS12 \
+                -storepass android \
+                -alias androiddebugkey \
+                -keypass android \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
           fi
 
           if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
             echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
-          else
+          elif [ -f debug.keystore.base64 ]; then
             keytool -importkeystore \
               -srckeystore debug.keystore \
               -srcstoretype PKCS12 \
@@ -60,6 +73,17 @@ jobs:
               -destalias upload \
               -destkeypass android \
               -noprompt
+          else
+            keytool -genkeypair -noprompt \
+              -keystore my-upload-key.jks \
+              -storetype PKCS12 \
+              -storepass android \
+              -alias upload \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=RAAJAN,OU=MissedCallSOS,O=MissedCallSOS,C=IN"
           fi
 
       - name: Extract App Version and Release Tag
